@@ -5,9 +5,11 @@ import { TrustFlowError } from '../errors';
 export async function connectWallet(type: WalletType = 'freighter'): Promise<WalletConnection> {
   if (type === 'freighter') {
     const freighter = getFreighter();
-    if (!freighter) throw new TrustFlowError('Freighter not installed', 'UNAUTHORIZED');
+    if (!freighter) {
+      throw new TrustFlowError('Freighter not installed', 'UNAUTHORIZED');
+    }
     const publicKey = await freighter.getPublicKey();
-    const network   = await freighter.getNetwork();
+    const network = await freighter.getNetwork();
     return { type: 'freighter', publicKey, network };
   }
   throw new TrustFlowError(`Wallet type ${type} not supported`, 'UNAUTHORIZED');

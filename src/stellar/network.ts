@@ -1,6 +1,9 @@
 export type StellarNetwork = 'TESTNET' | 'MAINNET';
 
-export const NETWORK_CONFIGS: Record<StellarNetwork, { horizonUrl: string; rpcUrl: string; passphrase: string }> = {
+export const NETWORK_CONFIGS: Record<
+  StellarNetwork,
+  { horizonUrl: string; rpcUrl: string; passphrase: string }
+> = {
   TESTNET: {
     horizonUrl: 'https://horizon-testnet.stellar.org',
     rpcUrl: 'https://soroban-testnet.stellar.org',

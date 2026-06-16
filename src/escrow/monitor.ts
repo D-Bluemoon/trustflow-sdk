@@ -5,7 +5,9 @@ export class EscrowMonitor {
   private pollingInterval?: ReturnType<typeof setInterval>;
 
   on(type: string, handler: EventHandler): this {
-    if (!this.handlers.has(type)) this.handlers.set(type, new Set());
+    if (!this.handlers.has(type)) {
+      this.handlers.set(type, new Set());
+    }
     this.handlers.get(type)!.add(handler);
     return this;
   }
@@ -28,5 +30,7 @@ export class EscrowMonitor {
     }, intervalMs);
   }
 
-  stopPolling(): void { clearInterval(this.pollingInterval); }
+  stopPolling(): void {
+    clearInterval(this.pollingInterval);
+  }
 }

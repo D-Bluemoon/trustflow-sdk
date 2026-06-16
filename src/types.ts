@@ -9,10 +9,10 @@ export interface ClientConfig {
 }
 
 export enum EscrowStatus {
-  Pending   = 'PENDING',
-  Active    = 'ACTIVE',
-  Released  = 'RELEASED',
-  Disputed  = 'DISPUTED',
+  Pending = 'PENDING',
+  Active = 'ACTIVE',
+  Released = 'RELEASED',
+  Disputed = 'DISPUTED',
   Cancelled = 'CANCELLED',
 }
 

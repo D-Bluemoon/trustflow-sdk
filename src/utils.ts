@@ -1,5 +1,5 @@
-import humanizeDuration from 'humanize-duration'
-import moment from 'moment'
+import humanizeDuration from 'humanize-duration';
+import moment from 'moment';
 
 /**
  * Format a balance for display to user.
@@ -9,21 +9,22 @@ import moment from 'moment'
  * Otherwise, return it as a BigInt, which does not respect decimal places.
  * This is probably ok since the numbers will be so huge.
  */
-export function formatAmount(undivided: BigInt, decimals: number): string {
-  const n = undivided.valueOf() < BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number(undivided) / (10 ** decimals)
-    : (undivided.valueOf() / (10n ** BigInt(decimals)));
+export function formatAmount(undivided: bigint, decimals: number): string {
+  const n =
+    undivided.valueOf() < BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(undivided) / 10 ** decimals
+      : undivided.valueOf() / 10n ** BigInt(decimals);
   return String(n);
 }
 
 const getRemainingTime = (date?: Date): string => {
   if (!date) {
-    return 'Undefined'
+    return 'Undefined';
   }
-  const diff = moment(date).diff(Date.now())
+  const diff = moment(date).diff(Date.now());
 
   if (isExpired(date)) {
-    return 'Expired'
+    return 'Expired';
   }
 
   return (
@@ -32,12 +33,12 @@ const getRemainingTime = (date?: Date): string => {
       conjunction: ' and ',
       largest: 1,
     }) + ' left'
-  )
-}
+  );
+};
 
 const isExpired = (date?: Date): boolean => {
-  return moment(date).diff(Date.now()) <= 0
-}
+  return moment(date).diff(Date.now()) <= 0;
+};
 
 /**
  * Calculate percentage of two BigInts
@@ -45,21 +46,19 @@ const isExpired = (date?: Date): boolean => {
  * and that dividing each one by `decimals` results in a value representable as
  * a `number` type.
  */
-const percentage = (
-  value: BigInt,
-  divider: BigInt,
-  decimals = 7
-): number => {
-  return (Number(value.valueOf() / (10n ** BigInt(decimals))) /
-      Number(divider.valueOf() / (10n ** BigInt(decimals)))
-    ) * 100
-}
+const percentage = (value: bigint, divider: bigint, decimals = 7): number => {
+  return (
+    (Number(value.valueOf() / 10n ** BigInt(decimals)) /
+      Number(divider.valueOf() / 10n ** BigInt(decimals))) *
+    100
+  );
+};
 
 const Utils = {
   formatAmount,
   getRemainingTime,
   isExpired,
   percentage,
-}
+};
 
-export { Utils }
+export { Utils };

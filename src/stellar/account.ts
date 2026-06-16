@@ -7,13 +7,25 @@ export interface AccountInfo {
   isActive: boolean;
 }
 
-export async function fetchAccountInfo(address: string, network: StellarNetwork): Promise<AccountInfo> {
+export async function fetchAccountInfo(
+  address: string,
+  network: StellarNetwork,
+): Promise<AccountInfo> {
   const { horizonUrl } = getNetworkConfig(network);
   try {
     const res = await fetch(`${horizonUrl}/accounts/${address}`);
-    if (!res.ok) return { address, balanceXLM: '0', sequenceNumber: '0', isActive: false };
+    if (!res.ok) {
+      return { address, balanceXLM: '0', sequenceNumber: '0', isActive: false };
+    }
     const data = await res.json();
     const xlm = data.balances?.find((b: any) => b.asset_type === 'native');
-    return { address, balanceXLM: xlm?.balance ?? '0', sequenceNumber: data.sequence, isActive: true };
-  } catch { return { address, balanceXLM: '0', sequenceNumber: '0', isActive: false }; }
+    return {
+      address,
+      balanceXLM: xlm?.balance ?? '0',
+      sequenceNumber: data.sequence,
+      isActive: true,
+    };
+  } catch {
+    return { address, balanceXLM: '0', sequenceNumber: '0', isActive: false };
+  }
 }
