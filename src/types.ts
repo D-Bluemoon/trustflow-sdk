@@ -3,6 +3,9 @@ export type Network = 'TESTNET' | 'MAINNET';
 export interface ClientConfig {
   network?: Network;
   contractId: string;
+  rpcUrl?: string;
+  apiBaseUrl?: string;
+  apiKey?: string;
 }
 
 export enum EscrowStatus {

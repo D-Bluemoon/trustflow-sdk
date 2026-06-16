@@ -1,4 +1,4 @@
-import { EscrowParams } from '../types';
+import { EscrowParams } from '../types/index';
 
 export class EscrowBuilder {
   private params: Partial<EscrowParams> = {};

@@ -1,4 +1,4 @@
-import { DisputeParams, SDKResult } from '../types';
+import { DisputeParams, SDKResult } from '../types/index';
 
 export class DisputeClient {
   constructor(

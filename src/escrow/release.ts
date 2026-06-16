@@ -1,5 +1,5 @@
 import type { TrustFlowClient } from '../client';
-import type { ReleaseEscrowParams } from '../types';
+import type { ReleaseEscrowParams } from '../types/index';
 import { TrustFlowError } from '../errors';
 
 export async function releaseEscrow(
