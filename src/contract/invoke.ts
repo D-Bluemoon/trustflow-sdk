@@ -13,6 +13,6 @@ export async function invokeContract(
   const contract = new Contract(client.contractId);
   const account = await server.getAccount(caller);
   // Build and simulate the invocation
-  const operation = contract.call(method, ...args as any[]);
+  const operation = contract.call(method, ...(args as any[]));
   return { operation, account, server };
 }

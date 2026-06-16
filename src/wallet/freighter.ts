@@ -6,9 +6,13 @@ export interface FreighterWallet {
 }
 
 export function getFreighter(): FreighterWallet | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined') {
+    return null;
+  }
   const w = (window as any).freighter;
-  if (!w) return null;
+  if (!w) {
+    return null;
+  }
   return {
     isAvailable: () => true,
     getPublicKey: () => w.getPublicKey(),
@@ -18,7 +22,9 @@ export function getFreighter(): FreighterWallet | null {
 }
 
 export async function isFreighterInstalled(): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
-  await new Promise(r => setTimeout(r, 100));
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  await new Promise((r) => setTimeout(r, 100));
   return !!(window as any).freighter;
 }

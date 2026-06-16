@@ -10,9 +10,9 @@ export async function readContractState(
   const rpcUrl = SOROBAN_RPC_URLS[client.network];
   const server = new SorobanRpc.Server(rpcUrl);
   const contract = new Contract(client.contractId);
-  const operation = contract.call(method, ...args as any[]);
-  const result = await server.simulateTransaction(
-    { toEnvelope: () => ({ toXDR: () => '' } as any) } as any,
-  );
+  const operation = contract.call(method, ...(args as any[]));
+  const result = await server.simulateTransaction({
+    toEnvelope: () => ({ toXDR: () => '' }) as any,
+  } as any);
   return result;
 }

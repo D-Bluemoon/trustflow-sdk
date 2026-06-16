@@ -1,4 +1,7 @@
-interface CacheEntry<T> { value: T; expiresAt: number; }
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
 
 export class SimpleCache<K, V> {
   private store = new Map<K, CacheEntry<V>>();
@@ -10,12 +13,23 @@ export class SimpleCache<K, V> {
 
   get(key: K): V | undefined {
     const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) { this.store.delete(key); return undefined; }
+    if (!entry) {
+      return undefined;
+    }
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(key);
+      return undefined;
+    }
     return entry.value;
   }
 
-  delete(key: K): void { this.store.delete(key); }
-  clear(): void { this.store.clear(); }
-  size(): number { return this.store.size; }
+  delete(key: K): void {
+    this.store.delete(key);
+  }
+  clear(): void {
+    this.store.clear();
+  }
+  size(): number {
+    return this.store.size;
+  }
 }

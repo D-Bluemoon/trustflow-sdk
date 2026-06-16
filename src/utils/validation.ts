@@ -6,13 +6,17 @@ export function isValidStellarAddress(value: string): boolean {
 }
 
 export function isValidXLMAmount(value: string): boolean {
-  if (!XLM_AMOUNT_RE.test(value)) return false;
+  if (!XLM_AMOUNT_RE.test(value)) {
+    return false;
+  }
   const n = parseFloat(value);
   return n > 0 && n <= 500_000_000;
 }
 
 export function assertStellarAddress(value: string, field = 'address'): void {
-  if (!isValidStellarAddress(value)) throw new Error(`Invalid Stellar address for "${field}": ${value}`);
+  if (!isValidStellarAddress(value)) {
+    throw new Error(`Invalid Stellar address for "${field}": ${value}`);
+  }
 }
 
 export function xlmToStroops(xlm: string): bigint {
@@ -31,5 +35,8 @@ export function isValidBlockCount(value: number): boolean {
 }
 
 export function sanitizeString(value: string, maxLength = 256): string {
-  return value.replace(/[<>"']/g, '').trim().slice(0, maxLength);
+  return value
+    .replace(/[<>"']/g, '')
+    .trim()
+    .slice(0, maxLength);
 }

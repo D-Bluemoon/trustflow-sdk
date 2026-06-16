@@ -1,5 +1,5 @@
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
-const CONTRACT_ID_RE     = /^C[A-Z2-7]{55}$/;
+const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
 
 export function isValidStellarAddress(address: string): boolean {
   return STELLAR_ADDRESS_RE.test(address);

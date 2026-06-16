@@ -57,7 +57,9 @@ function decodeScVal(xdr: string): string {
   try {
     const buf = Buffer.from(xdr, 'base64');
     // ScVal string prefix is 0x0e (ScValType.SCV_STRING)
-    if (buf[0] === 0x0e) return buf.slice(5).toString('utf8');
+    if (buf[0] === 0x0e) {
+      return buf.slice(5).toString('utf8');
+    }
     return xdr;
   } catch {
     return xdr;
@@ -71,15 +73,17 @@ export function isTrustFlowEvent(event: RawContractEvent, contractId: string): b
 
 /** Parse a raw Soroban contract event into a typed TrustFlow event */
 export function parseEvent(event: RawContractEvent): ParsedEvent | null {
-  if (!event.topic || event.topic.length === 0) return null;
+  if (!event.topic || event.topic.length === 0) {
+    return null;
+  }
 
   const eventType = decodeScVal(event.topic[0]) as TrustFlowEventType;
 
   const base = {
     contractId: event.contractId,
-    ledger:     event.ledger,
-    timestamp:  event.ledgerClosedAt,
-    id:         event.id,
+    ledger: event.ledger,
+    timestamp: event.ledgerClosedAt,
+    id: event.id,
   };
 
   switch (eventType) {
@@ -88,10 +92,10 @@ export function parseEvent(event: RawContractEvent): ParsedEvent | null {
         ...base,
         type: 'escrow_created',
         data: {
-          escrowId:  decodeScVal(event.topic[1] ?? ''),
-          sender:    decodeScVal(event.topic[2] ?? ''),
+          escrowId: decodeScVal(event.topic[1] ?? ''),
+          sender: decodeScVal(event.topic[2] ?? ''),
           recipient: decodeScVal(event.topic[3] ?? ''),
-          amount:    BigInt(decodeScVal(event.value) || '0'),
+          amount: BigInt(decodeScVal(event.value) || '0'),
         } as EscrowCreatedData,
       };
 
@@ -100,9 +104,9 @@ export function parseEvent(event: RawContractEvent): ParsedEvent | null {
         ...base,
         type: 'escrow_released',
         data: {
-          escrowId:  decodeScVal(event.topic[1] ?? ''),
+          escrowId: decodeScVal(event.topic[1] ?? ''),
           recipient: decodeScVal(event.topic[2] ?? ''),
-          amount:    BigInt(decodeScVal(event.value) || '0'),
+          amount: BigInt(decodeScVal(event.value) || '0'),
         } as EscrowReleasedData,
       };
 
@@ -113,7 +117,7 @@ export function parseEvent(event: RawContractEvent): ParsedEvent | null {
         data: {
           escrowId: decodeScVal(event.topic[1] ?? ''),
           raisedBy: decodeScVal(event.topic[2] ?? ''),
-          reason:   decodeScVal(event.value),
+          reason: decodeScVal(event.value),
         } as DisputeRaisedData,
       };
 
@@ -123,10 +127,7 @@ export function parseEvent(event: RawContractEvent): ParsedEvent | null {
 }
 
 /** Parse an array of raw events, filtering nulls and non-TrustFlow events */
-export function parseEvents(
-  events: RawContractEvent[],
-  contractId: string,
-): ParsedEvent[] {
+export function parseEvents(events: RawContractEvent[], contractId: string): ParsedEvent[] {
   return events
     .filter((e) => isTrustFlowEvent(e, contractId))
     .map(parseEvent)

@@ -28,5 +28,7 @@ export class TrustFlowClient {
     return native?.balance ?? '0';
   }
 
-  getServer(): Horizon.Server { return this.server; }
+  getServer(): Horizon.Server {
+    return this.server;
+  }
 }

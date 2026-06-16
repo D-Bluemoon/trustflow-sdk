@@ -4,16 +4,29 @@ type TxStatus = 'idle' | 'pending' | 'success' | 'error';
 
 export function useTransaction() {
   const [status, setStatus] = useState<TxStatus>('idle');
-  const [hash, setHash]     = useState<string | undefined>();
-  const [error, setError]   = useState<string | null>(null);
+  const [hash, setHash] = useState<string | undefined>();
+  const [error, setError] = useState<string | null>(null);
 
   const execute = useCallback(async (fn: () => Promise<string>) => {
-    setStatus('pending'); setError(null);
-    try { const h = await fn(); setHash(h); setStatus('success'); return h; }
-    catch (e: any) { setError(e.message); setStatus('error'); throw e; }
+    setStatus('pending');
+    setError(null);
+    try {
+      const h = await fn();
+      setHash(h);
+      setStatus('success');
+      return h;
+    } catch (e: any) {
+      setError(e.message);
+      setStatus('error');
+      throw e;
+    }
   }, []);
 
-  const reset = useCallback(() => { setStatus('idle'); setHash(undefined); setError(null); }, []);
+  const reset = useCallback(() => {
+    setStatus('idle');
+    setHash(undefined);
+    setError(null);
+  }, []);
 
   return { status, hash, error, execute, reset, isPending: status === 'pending' };
 }
