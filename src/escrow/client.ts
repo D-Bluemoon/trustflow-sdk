@@ -1,5 +1,5 @@
 import { ContractConfig, InvokeContractParams, ContractCallResult } from '../types/contract';
-import { EscrowParams, EscrowState, SDKResult } from '../types';
+import { EscrowParams, EscrowState, SDKResult } from '../types/index';
 import { assertStellarAddress, xlmToStroops } from '../utils/validation';
 
 export class TrustFlowEscrowClient {
