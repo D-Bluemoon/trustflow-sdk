@@ -5,7 +5,10 @@ export type TrustFlowErrorCode =
   | 'UNAUTHORIZED'
   | 'NOT_FOUND'
   | 'SIMULATION_ERROR'
-  | 'SIGNING_ERROR';
+  | 'SIGNING_ERROR'
+  | 'INVALID_CONFIG'
+  | 'NOT_CONNECTED'
+  | 'BALANCE_FETCH_ERROR';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
