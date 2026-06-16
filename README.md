@@ -1,28 +1,17 @@
 # 📦 TrustFlow SDK
 
-[![NPM Version](https://img.shields.io/npm/v/@trustflow/sdk)](https://www.npmjs.com/package/@trustflow/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
-# 📦 TrustFlow SDK
+> **Type-safe TypeScript SDK for building gig-economy applications on the TrustFlow Protocol (Stellar/Soroban).**
 
-> **The professional TypeScript gateway to the TrustFlow Protocol.**
-
-The TrustFlow SDK provides a type-safe, developer-friendly interface for interacting with TrustFlow smart contracts on the Stellar network. It abstracts away the complexity of XDR construction, transaction simulation, and storage management, allowing developers to build robust gig-economy applications with ease.
-
----
-
-## ✨ Core Features
-
--   🛡️ **Type-Safe Contract Wrappers**: Full coverage for Escrow, Milestone, and Dispute contracts.
--   ⚡ **Simulation Engine**: Built-in wrappers for `.simulate()` to predict gas costs and outcomes.
--   🔒 **Multi-Sig Ready**: Logic for constructing and aggregating signatures for corporate escrows.
--   🧩 **Zod Schema Exports**: Share data validation logic between your frontend and backend.
--   📦 **Modern Bundling**: Standardized ESM and CJS outputs via `tsup`.
--   🛠️ **Event Decoding**: Native helpers to parse Soroban XDR events into clean TypeScript interfaces.
+The TrustFlow SDK provides a developer-friendly interface for interacting with TrustFlow smart contracts on the Stellar network. Build escrow systems, dispute resolution platforms, and decentralized freelance marketplaces with clean, type-safe APIs.
 
 ---
 
-## 🚀 Installation
+## ⚡ Quick Start
+
+### Installation
 
 ```bash
 npm install @trustflow/sdk
@@ -30,90 +19,131 @@ npm install @trustflow/sdk
 yarn add @trustflow/sdk
 ```
 
----
-
-## 📖 Technical Reference
-
-### 1. Initializing the Client
-The `TrustFlowClient` is the main entry point, handling network configuration and RPC connections.
+### Basic Usage
 
 ```typescript
-import { TrustFlowClient, Networks } from '@trustflow/sdk';
+import { TrustFlowClient } from '@trustflow/sdk';
+import { createEscrow } from '@trustflow/sdk/escrow';
 
+// Initialize client
 const client = new TrustFlowClient({
-  network: Networks.TESTNET,
-  rpcUrl: 'https://soroban-testnet.stellar.org',
-  apiKey: 'your-optional-api-key'
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET',
 });
+
+await client.connect();
+
+// Create an escrow
+const escrow = await createEscrow(client, {
+  sender: 'GDEPOSITOR...',
+  recipient: 'GBENEFICIARY...',
+  amountStroops: '1000000',
+  durationBlocks: 17280,
+  metadata: { orderId: 'ORD-001' },
+});
+
+console.log('Escrow created:', escrow.id);
 ```
 
-### 2. Escrow Management (`client.escrow`)
--   **`.create(params)`**: Initializes a new milestone-based vault.
--   **`.fund(escrowId, amount)`**: Locks USDC assets into the contract.
--   **`.releaseMilestone(escrowId, trancheIndex)`**: Approves a partial payment.
--   **`.getGigs(cursor, limit)`**: Fetches paginated gig history.
-
-### 3. Community Governance (`client.juror`)
--   **`.vote(disputeId, choice, reasoning)`**: Casts a secure vote in the courtroom.
--   **`.claimRewards()`**: Withdraws earned juror fees and incentives.
-
-### 4. Storage & Profiles (`client.storage` / `client.profiles`)
--   **`.storage.upload(file)`**: Effortless IPFS pinning for evidence and deliverables.
--   **`.profiles.update(bio, socialLinks)`**: Type-safe updates to your decentralized resume.
+See [examples/](./examples/) for more complete examples.
 
 ---
 
-## 🛡️ Reliability & Security
+## ✨ Features
 
--   **Auto-Retries**: Built-in `axios-retry` logic to handle flaky RPC endpoints.
--   **XDR Validation**: Every transaction is structurally validated via Jest matchers before submission.
--   **NPM Provenance**: All releases utilize strict GitHub Actions provenance for supply-chain security.
--   **Strict Linting**: Enforced clean code standards via Prettier and ESlint strict-mode.
+### Current Capabilities
 
----
+- **🔐 Escrow Management**: Create, fund, release, and monitor escrows
+- **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
+- **🔑 Wallet Integration**: Built-in support for Freighter and Albedo wallets
+- **📊 Event Monitoring**: Real-time escrow state change tracking
+- **🛡️ Type Safety**: Full TypeScript support with Zod validation schemas
+- **🧪 Test Coverage**: Comprehensive Jest test suite
 
-## 🗺️ SDK Roadmap (In-Flight)
+### Architecture Highlights
 
-- [ ] **Simulation Wrappers**: High-level API for predicting transaction success.
-- [ ] **Advanced Pagination**: Cursor-based fetching for high-volume gig lists.
-- [ ] **Typedoc Integration**: Automated API reference documentation generation.
-- [ ] **NPM Provenance Enforced**: Finalizing the secure release pipeline.
+- **Result Types**: No thrown exceptions in public APIs - all errors returned as `SDKResult<T>`
+- **Immutable Builders**: Fluent APIs like `EscrowBuilder` for parameter construction
+- **Network Agnostic**: Easily switch between Testnet and Mainnet
+- **Pure Utilities**: Side-effect-free helper functions for formatting and validation
 
----
-
-## 🤝 Community & Support
-
-- **Documentation**: [Full API Reference](https://docs.trustflow.xyz)
-- **Examples**: Check the `/examples` directory for quickstart snippets.
-- **Contribute**: We follow strict ESM standards. PRs must pass `npm run test:xdr`.
+Read more in [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ---
 
-*Securing the future of work, one transaction at a time.*
+## 📚 Documentation
 
-Based on our [GitHub Issues](https://github.com/trustflow-protocol/trustflow-sdk/issues):
-
-- [ ] **`.getGigs()` Pagination**: Automatically handle high-volume cursor-based reading.
-- [ ] **`.claim()` Shortcut**: One-click withdrawal for cleared milestone funds.
-- [ ] **Simulation Counterparts**: `.simulateRelease()` for fee-previewing transactions.
-- [ ] **Auto-Retries**: Intelligent `axios-retry` for transient RPC failures.
-- [ ] **NPM Provenance**: Secure publishing through strict OIDC provenance.
+- **[Quick Start Guide](./docs/QUICKSTART.md)** - Get up and running in 5 minutes
+- **[API Reference](./docs/API.md)** - Complete API documentation
+- **[Architecture](./docs/ARCHITECTURE.md)** - Design principles and module structure
+- **[Examples](./examples/)** - Working code examples for common use cases
 
 ---
 
-## 🤝 Community
+## 🗺️ Roadmap
 
-Join the movement to decentralize trust in the gig economy. 
+The SDK is under active development. Here's what's coming:
 
-- **Issues**: Report bugs or request features at [trustflow-sdk/issues](https://github.com/trustflow-protocol/trustflow-sdk/issues).
-- **Discussions**: Share ideas on our [Stellar Community Forum](https://stellar.org/community).
+### In Progress
+- [ ] Tsup bundler configuration for ESM/CJS exports
+- [ ] NPM publishing pipeline with provenance
+- [ ] Simulation wrappers for transaction cost estimation
+- [ ] Auto-retry logic for RPC endpoints
+
+### Planned Features
+- [ ] Multi-signature support for corporate escrows
+- [ ] IPFS storage helpers for file uploads
+- [ ] Pagination support for high-volume queries
+- [ ] Event parsing utilities for XDR decoding
+- [ ] Juror voting system integration
+
+See our [GitHub Issues](https://github.com/trustflow-protocol/trustflow-sdk/issues) for detailed progress tracking.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! To get started:
+
+1. Fork the repository
+2. Install dependencies: `npm install`
+3. Run tests: `npm test`
+4. Submit a PR
+
+Please ensure:
+- Tests pass (`npm test`)
+- Linting passes (`npm run lint`)
+- Code is formatted (`npm run format`)
+
+Check [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
+
+---
+
+## 🔒 Security
+
+- **Strict Linting**: ESLint strict mode enforced across the codebase
+- **Input Validation**: All parameters validated with Zod schemas
+- **Type Safety**: TypeScript strict mode prevents runtime errors
+- **Test Coverage**: Critical paths covered by Jest integration tests
+
+Report security issues to: security@trustflow.xyz
 
 ---
 
 ## 📜 License
 
-MIT License. Copyright (c) 2026 TrustFlow Protocol.
+MIT License - Copyright (c) 2026 TrustFlow Protocol
 
-## Documentation
-- [Quick Start](./docs/QUICKSTART.md)
-- [API Reference](./docs/API.md)
+See [LICENSE](./LICENSE) for details.
+
+---
+
+## 🌟 Community
+
+- **Issues**: [Report bugs or request features](https://github.com/trustflow-protocol/trustflow-sdk/issues)
+- **Contributors**: See [CONTRIBUTORS.md](./CONTRIBUTORS.md)
+- **Changelog**: See [CHANGELOG.md](./CHANGELOG.md)
+
+---
+
+*Securing the future of work, one transaction at a time.*
