@@ -1,4 +1,4 @@
-import { nativeToScVal } from '@stellar/stellar-sdk';
+import { Address, nativeToScVal } from '@stellar/stellar-sdk';
 import type { CreateEscrowParams } from '../types';
 
 export function buildCreateEscrowArgs(params: CreateEscrowParams): unknown[] {
