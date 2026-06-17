@@ -1,5 +1,5 @@
-import { isValidStellarAddress, isValidXLMAmount, xlmToStroops, stroopsToXLM } from '../src/utils/validation';
-import { stroopsToXLM as fmt } from '../src/utils/format';
+import { isValidStellarAddress, isValidXLMAmount, xlmToStroops } from '../src/utils/validation';
+import { stroopsToXLM } from '../src/utils/format';
 
 describe('Stellar address validation', () => {
   it('accepts valid G... address', () => expect(isValidStellarAddress('G' + 'A'.repeat(55))).toBe(true));
@@ -17,5 +17,5 @@ describe('XLM amount validation', () => {
 describe('XLM/stroops conversion', () => {
   it('converts 1 XLM to 10_000_000 stroops', () => expect(xlmToStroops('1')).toBe(10_000_000n));
   it('converts 0.5 XLM to 5_000_000 stroops', () => expect(xlmToStroops('0.5')).toBe(5_000_000n));
-  it('converts stroops back to XLM', () => expect(fmt(10_000_000n)).toBe('1'));
+  it('converts stroops back to XLM', () => expect(stroopsToXLM(10_000_000n)).toBe('1'));
 });

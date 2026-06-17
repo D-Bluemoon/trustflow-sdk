@@ -10,6 +10,8 @@ describe('DisputeClient', () => {
     const client = new DisputeClient('http://invalid-host-xyz', 'tok');
     const result = await client.raiseDispute({ escrowId: 'esc-1', reason: 'test' });
     expect(result.ok).toBe(false);
-    expect(result.error).toBeTruthy();
+    if (!result.ok) {
+      expect(result.error).toBeTruthy();
+    }
   });
 });
