@@ -16,7 +16,7 @@ export class DisputeClient {
       if (!res.ok) {
         return { ok: false, error: `HTTP ${res.status}` };
       }
-      const data = await res.json();
+      const data = (await res.json()) as { id: string };
       return { ok: true, data: { disputeId: data.id } };
     } catch (e) {
       return { ok: false, error: String(e) };

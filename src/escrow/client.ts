@@ -1,9 +1,13 @@
-import { ContractConfig, InvokeContractParams, ContractCallResult } from '../types/contract';
+import { ContractConfig } from '../types/contract';
 import { EscrowParams, EscrowState, SDKResult } from '../types/index';
 import { assertStellarAddress, xlmToStroops } from '../utils/validation';
 
 export class TrustFlowEscrowClient {
-  constructor(private config: ContractConfig) {}
+  protected readonly contractConfig: ContractConfig;
+
+  constructor(config: ContractConfig) {
+    this.contractConfig = config;
+  }
 
   async createEscrow(
     params: EscrowParams,
@@ -27,7 +31,7 @@ export class TrustFlowEscrowClient {
     return { ok: true, data: { txHash: `release-${escrowId}-${Date.now()}` } };
   }
 
-  async getEscrow(escrowId: string): Promise<SDKResult<EscrowState | null>> {
+  async getEscrow(_escrowId: string): Promise<SDKResult<EscrowState | null>> {
     return { ok: true, data: null }; // Fetch from contract storage
   }
 }

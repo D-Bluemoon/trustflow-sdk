@@ -9,7 +9,7 @@ export async function requestChallenge(apiUrl: string, address: string): Promise
   if (!res.ok) {
     throw new Error('Failed to get challenge');
   }
-  const { challenge } = await res.json();
+  const { challenge } = (await res.json()) as { challenge: string };
   return { challenge, expiresAt: Date.now() + 60_000, address };
 }
 
@@ -26,6 +26,6 @@ export async function verifyAndGetToken(
   if (!res.ok) {
     throw new Error('Signature verification failed');
   }
-  const { token } = await res.json();
+  const { token } = (await res.json()) as { token: string };
   return token;
 }
