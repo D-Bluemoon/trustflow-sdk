@@ -47,6 +47,42 @@ console.log('Escrow created:', escrow.id);
 
 See [examples/](./examples/) for more complete examples.
 
+### Multi-Sig Escrow (M-of-N)
+
+Collect signatures from multiple approvers before a release is broadcast:
+
+```typescript
+import { MultiSigEscrowClient } from '@trustflow/sdk';
+import { Networks } from '@stellar/stellar-sdk';
+
+const client = new MultiSigEscrowClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET',
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+  networkPassphrase: Networks.TESTNET,
+});
+
+// Register a 2-of-2 release operation
+const { data: { operationId } } = client.initMultiSigOperation({
+  escrowId: 'esc-42',
+  signers: [APPROVER_A, APPROVER_B],
+  threshold: 2,
+  operationType: 'release',
+  unsignedXdr: UNSIGNED_RELEASE_XDR,
+  networkPassphrase: Networks.TESTNET,
+});
+
+// Each approver submits their signed XDR independently
+client.addSignature({ operationId, signerAddress: APPROVER_A, signedXdr: SIGNED_XDR_A });
+client.addSignature({ operationId, signerAddress: APPROVER_B, signedXdr: SIGNED_XDR_B });
+
+// Broadcast once threshold is met
+const result = await client.submitWhenReady(operationId, 'https://horizon-testnet.stellar.org');
+console.log('Released! tx:', result.data?.txHash);
+```
+
+See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full walkthrough.
+
 ---
 
 ## ✨ Features
@@ -54,6 +90,7 @@ See [examples/](./examples/) for more complete examples.
 ### Current Capabilities
 
 - **🔐 Escrow Management**: Create, fund, release, and monitor escrows
+- **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
 - **🔑 Wallet Integration**: Built-in support for Freighter and Albedo wallets
 - **📊 Event Monitoring**: Real-time escrow state change tracking
@@ -91,7 +128,7 @@ The SDK is under active development. Here's what's coming:
 - [ ] Auto-retry logic for RPC endpoints
 
 ### Planned Features
-- [ ] Multi-signature support for corporate escrows
+- [x] Multi-signature support for corporate escrows
 - [ ] IPFS storage helpers for file uploads
 - [ ] Pagination support for high-volume queries
 - [ ] Event parsing utilities for XDR decoding

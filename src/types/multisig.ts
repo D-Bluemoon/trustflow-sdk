@@ -1,0 +1,107 @@
+import type { StellarAddress, EscrowId, TxHash, SDKResult } from './index';
+
+export type MultiSigOperationType = 'release' | 'cancel' | 'dispute';
+export type MultiSigOperationStatus = 'pending' | 'ready' | 'submitted' | 'expired';
+
+/**
+ * M-of-N multi-sig configuration for a shared backend escrow.
+ * `threshold` signers out of `signers.length` must approve before the operation proceeds.
+ */
+export interface MultiSigConfig {
+  escrowId: EscrowId;
+  /** M: number of signatures required to meet threshold */
+  threshold: number;
+  /** N: ordered list of authorised Stellar addresses */
+  signers: StellarAddress[];
+}
+
+/** A single collected signature entry for a multi-sig operation */
+export interface SignatureEntry {
+  /** Stellar address of the signer */
+  signerAddress: StellarAddress;
+  /**
+   * XDR envelope produced by this signer — the SDK merges signatures from
+   * all collected envelopes into a single submission-ready XDR.
+   */
+  signedXdr: string;
+  addedAt: number;
+}
+
+/** Internal state of one pending multi-sig operation */
+export interface MultiSigOperation {
+  operationId: string;
+  escrowId: EscrowId;
+  operationType: MultiSigOperationType;
+  /** The base (unsigned or partially-signed) XDR envelope */
+  unsignedXdr: string;
+  networkPassphrase: string;
+  collectedSignatures: SignatureEntry[];
+  /** M — signatures required before submission */
+  threshold: number;
+  /** N — full set of authorised signers */
+  signers: StellarAddress[];
+  status: MultiSigOperationStatus;
+  createdAt: number;
+  expiresAt?: number;
+}
+
+/** Parameters for initiating a new multi-sig operation */
+export interface InitMultiSigParams {
+  escrowId: EscrowId;
+  /** Ordered list of authorised signer addresses */
+  signers: StellarAddress[];
+  /** Number of signatures required (must be ≥ 1 and ≤ signers.length) */
+  threshold: number;
+  operationType: MultiSigOperationType;
+  /** Base transaction XDR to be signed by `threshold` of the listed signers */
+  unsignedXdr: string;
+  networkPassphrase: string;
+  /** Optional UNIX timestamp (ms) after which the operation is considered expired */
+  expiresAt?: number;
+}
+
+/** Parameters for contributing a signature to an existing operation */
+export interface AddSignatureParams {
+  operationId: string;
+  /** Address of the signer submitting this signature */
+  signerAddress: StellarAddress;
+  /**
+   * Fully signed XDR envelope from this signer.
+   * The SDK extracts the new `DecoratedSignature` and merges it into the
+   * accumulated envelope without duplicating previously collected signatures.
+   */
+  signedXdr: string;
+}
+
+/** Read-only snapshot of signature-collection progress */
+export interface MultiSigStatus {
+  operationId: string;
+  escrowId: EscrowId;
+  operationType: MultiSigOperationType;
+  signaturesCollected: number;
+  threshold: number;
+  /** Full authorised-signer list */
+  signersAuthorised: StellarAddress[];
+  /** Subset who have already signed */
+  signersSigned: StellarAddress[];
+  /** Subset who have not yet signed */
+  signersRemaining: StellarAddress[];
+  /** True when signaturesCollected >= threshold */
+  isReady: boolean;
+  status: MultiSigOperationStatus;
+  createdAt: number;
+  expiresAt?: number;
+}
+
+/** Result returned after successfully submitting a ready multi-sig transaction */
+export interface MultiSigSubmitResult {
+  txHash: TxHash;
+  operationId: string;
+  escrowId: EscrowId;
+}
+
+export type InitMultiSigResult = SDKResult<{ operationId: string }>;
+export type AddSignatureResult = SDKResult<MultiSigStatus>;
+export type GetStatusResult = SDKResult<MultiSigStatus>;
+export type SubmitMultiSigResult = SDKResult<MultiSigSubmitResult>;
+export type GetXdrResult = SDKResult<{ xdr: string }>;

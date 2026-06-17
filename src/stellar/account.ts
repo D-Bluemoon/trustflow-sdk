@@ -17,8 +17,8 @@ export async function fetchAccountInfo(
     if (!res.ok) {
       return { address, balanceXLM: '0', sequenceNumber: '0', isActive: false };
     }
-    const data = await res.json();
-    const xlm = data.balances?.find((b: any) => b.asset_type === 'native');
+    const data = (await res.json()) as { balances: Array<{ asset_type: string; balance: string }>; sequence: string };
+    const xlm = data.balances?.find((b) => b.asset_type === 'native');
     return {
       address,
       balanceXLM: xlm?.balance ?? '0',

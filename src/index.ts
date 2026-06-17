@@ -1,6 +1,7 @@
 export * from './types';
 export * from './types/contract';
 export * from './types/events';
+export * from './types/multisig';
 export * from './escrow';
 export * from './auth';
 export * from './stellar';

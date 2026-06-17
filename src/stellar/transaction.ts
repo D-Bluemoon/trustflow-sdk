@@ -19,9 +19,14 @@ export async function submitTransaction(xdr: string, horizonUrl: string): Promis
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `tx=${encodeURIComponent(xdr)}`,
   });
-  const data = await res.json();
+  const data = (await res.json()) as {
+    hash: string;
+    successful: boolean;
+    ledger?: number;
+    extras?: { result_codes?: { transaction?: string } };
+  };
   if (!res.ok) {
-    throw new Error(data.extras?.result_codes?.transaction || 'Submission failed');
+    throw new Error(data.extras?.result_codes?.transaction ?? 'Submission failed');
   }
   return { hash: data.hash, successful: data.successful, ledger: data.ledger };
 }
