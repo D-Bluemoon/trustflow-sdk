@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { TrustFlowClient } from '../client';
 import type { Escrow, CreateEscrowParams } from '../types';
-import { createEscrow, releaseEscrow, getEscrow } from '../escrow';
+import { createEscrow, releaseEscrow } from '../escrow';
 
 export function useEscrow(client: TrustFlowClient) {
   const [loading, setLoading] = useState(false);

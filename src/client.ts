@@ -20,14 +20,14 @@ export class TrustFlowClient {
 
   /**
    * Creates a new TrustFlow client instance.
-   * 
+   *
    * @param config - Client configuration options
    * @param config.contractId - The Soroban contract ID for TrustFlow escrow
    * @param config.network - Network type ('TESTNET' or 'MAINNET'), defaults to TESTNET
    * @param config.rpcUrl - Optional custom Soroban RPC URL
    * @param config.apiBaseUrl - Optional TrustFlow API base URL for backend integration
    * @param config.apiKey - Optional API key for authenticated requests
-   * 
+   *
    * @example
    * ```typescript
    * const client = new TrustFlowClient({
@@ -56,9 +56,9 @@ export class TrustFlowClient {
   /**
    * Establishes connection to the Stellar network and verifies connectivity.
    * Must be called before performing any network operations.
-   * 
+   *
    * @throws {TrustFlowError} If connection to the network fails
-   * 
+   *
    * @example
    * ```typescript
    * await client.connect();
@@ -72,17 +72,13 @@ export class TrustFlowClient {
       this._connected = true;
     } catch (error) {
       this._connected = false;
-      throw new TrustFlowError(
-        'Failed to connect to Stellar network',
-        'CONNECTION_ERROR',
-        error
-      );
+      throw new TrustFlowError('Failed to connect to Stellar network', 'CONNECTION_ERROR', error);
     }
   }
 
   /**
    * Checks if the client is currently connected to the network.
-   * 
+   *
    * @returns true if connected, false otherwise
    */
   isConnected(): boolean {
@@ -91,11 +87,11 @@ export class TrustFlowClient {
 
   /**
    * Retrieves the native XLM balance for a given Stellar address.
-   * 
+   *
    * @param address - Stellar public key (G... address)
    * @returns Balance in XLM as a string
    * @throws {TrustFlowError} If the account doesn't exist or network error occurs
-   * 
+   *
    * @example
    * ```typescript
    * const balance = await client.getBalance('GDEPOSITOR...');
@@ -111,14 +107,14 @@ export class TrustFlowClient {
       throw new TrustFlowError(
         `Failed to fetch balance for ${address}`,
         'BALANCE_FETCH_ERROR',
-        error
+        error,
       );
     }
   }
 
   /**
    * Returns the underlying Horizon server instance for advanced operations.
-   * 
+   *
    * @returns Horizon.Server instance
    * @internal
    */
@@ -128,7 +124,7 @@ export class TrustFlowClient {
 
   /**
    * Gets the network passphrase for transaction signing.
-   * 
+   *
    * @returns Network passphrase string
    */
   getNetworkPassphrase(): string {
@@ -139,7 +135,7 @@ export class TrustFlowClient {
 
   /**
    * Creates authorization headers for API requests when apiKey is configured.
-   * 
+   *
    * @returns Headers object with authentication
    * @internal
    */
@@ -158,22 +154,19 @@ export class TrustFlowClient {
 
   /**
    * Verifies that the client is connected before performing operations.
-   * 
+   *
    * @throws {TrustFlowError} If not connected
    * @internal
    */
   ensureConnected(): void {
     if (!this._connected) {
-      throw new TrustFlowError(
-        'Client is not connected. Call connect() first.',
-        'NOT_CONNECTED'
-      );
+      throw new TrustFlowError('Client is not connected. Call connect() first.', 'NOT_CONNECTED');
     }
   }
 
   /**
    * Returns a summary of the client configuration.
-   * 
+   *
    * @returns Object containing client configuration details
    */
   getConfig(): {

@@ -42,7 +42,9 @@ export class MultiSigEscrowClient {
    */
   initMultiSigOperation(params: InitMultiSigParams): InitMultiSigResult {
     const validation = this._validateInitParams(params);
-    if (!validation.ok) return validation;
+    if (!validation.ok) {
+      return validation;
+    }
 
     const operationId = `msig-${params.escrowId}-${Date.now()}-${++this._opCounter}`;
     const operation: MultiSigOperation = {
@@ -104,7 +106,9 @@ export class MultiSigEscrowClient {
     }
 
     const xdrValidation = this._validateSignedXdr(params.signedXdr, operation.networkPassphrase);
-    if (!xdrValidation.ok) return xdrValidation;
+    if (!xdrValidation.ok) {
+      return xdrValidation;
+    }
 
     const entry: SignatureEntry = {
       signerAddress: params.signerAddress,
@@ -167,7 +171,9 @@ export class MultiSigEscrowClient {
     }
 
     const assembledResult = this.getAssembledXdr(operationId);
-    if (!assembledResult.ok) return assembledResult;
+    if (!assembledResult.ok) {
+      return assembledResult;
+    }
 
     try {
       const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl);

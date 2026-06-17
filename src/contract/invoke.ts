@@ -1,4 +1,4 @@
-import { SorobanRpc, Contract, Address } from '@stellar/stellar-sdk';
+import { SorobanRpc, Contract } from '@stellar/stellar-sdk';
 import { SOROBAN_RPC_URLS } from '../constants';
 import type { TrustFlowClient } from '../client';
 

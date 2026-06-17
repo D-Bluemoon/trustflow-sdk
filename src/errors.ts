@@ -47,10 +47,7 @@ export class TrustFlowError extends Error {
   }
 
   static multiSigExpired(operationId: string): TrustFlowError {
-    return new TrustFlowError(
-      `Multi-sig operation ${operationId} has expired`,
-      'MULTISIG_EXPIRED',
-    );
+    return new TrustFlowError(`Multi-sig operation ${operationId} has expired`, 'MULTISIG_EXPIRED');
   }
 
   static multiSigInvalidSigner(address: string): TrustFlowError {
