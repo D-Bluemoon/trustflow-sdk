@@ -3,6 +3,8 @@ export interface ContractConfig {
   network: 'TESTNET' | 'MAINNET';
   rpcUrl: string;
   networkPassphrase: string;
+  apiBaseUrl?: string;
+  apiKey?: string;
 }
 
 export interface InvokeContractParams {
