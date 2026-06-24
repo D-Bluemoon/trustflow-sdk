@@ -47,7 +47,7 @@ export class TrustFlowEscrowClient {
    * @param params.cursor - Opaque cursor from a previous response; omit to start from the first page
    * @param params.limit - Records per page (default 20, max 100)
    * @param params.status - Filter by escrow status
-   * @param params.depositor - Filter by depositor address
+   * @param params.depositor:2Filter by depositor address
    * @param params.beneficiary - Filter by beneficiary address
    *
    * @returns `{ ok: true, data: GigsPage }` on success, `{ ok: false, error }` on failure
@@ -69,11 +69,21 @@ export class TrustFlowEscrowClient {
     }
 
     const query = new URLSearchParams();
-    if (params.cursor)      query.set('cursor',      params.cursor);
-    if (params.limit)       query.set('limit',       String(Math.min(params.limit, 100)));
-    if (params.status)      query.set('status',      params.status);
-    if (params.depositor)   query.set('depositor',   params.depositor);
-    if (params.beneficiary) query.set('beneficiary', params.beneficiary);
+    if (params.cursor) {
+      query.set('cursor', params.cursor);
+    }
+    if (params.limit) {
+      query.set('limit', String(Math.min(params.limit, 100)));
+    }
+    if (params.status) {
+      query.set('status', params.status);
+    }
+    if (params.depositor) {
+      query.set('depositor', params.depositor);
+    }
+    if (params.beneficiary) {
+      query.set('beneficiary', params.beneficiary);
+    }
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.contractConfig.apiKey) {
@@ -83,8 +93,9 @@ export class TrustFlowEscrowClient {
     let res: Response;
     try {
       res = await fetch(`${this.contractConfig.apiBaseUrl}/gigs?${query}`, { headers });
-    } catch (err: any) {
-      return { ok: false, error: `Network error: ${err?.message ?? String(err)}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: `Network error: ${message}` };
     }
 
     if (!res.ok) {
