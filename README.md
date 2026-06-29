@@ -92,6 +92,7 @@ See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full wa
 - **🔐 Escrow Management**: Create, fund, release, and monitor escrows
 - **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
+- **🔁 Backend API Auto-Retries**: Resilient backend calls via `axios-retry` for transient failures
 - **🔑 Wallet Integration**: Built-in support for Freighter and Albedo wallets
 - **📊 Event Monitoring**: Real-time escrow state change tracking
 - **🛡️ Type Safety**: Full TypeScript support with Zod validation schemas
@@ -122,10 +123,10 @@ Read more in [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 The SDK is under active development. Here's what's coming:
 
 ### In Progress
-- [ ] Tsup bundler configuration for ESM/CJS exports
+- [x] Tsup bundler configuration for ESM/CJS exports
 - [ ] NPM publishing pipeline with provenance
 - [ ] Simulation wrappers for transaction cost estimation
-- [ ] Auto-retry logic for RPC endpoints
+- [x] Auto-retry logic for backend API endpoints (`axios-retry`)
 
 ### Planned Features
 - [x] Multi-signature support for corporate escrows

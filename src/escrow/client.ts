@@ -1,6 +1,7 @@
 import { ContractConfig } from '../types/contract';
 import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '../types/index';
 import { assertStellarAddress, xlmToStroops } from '../utils/validation';
+import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 
 export class TrustFlowEscrowClient {
   protected readonly contractConfig: ContractConfig;
@@ -42,12 +43,15 @@ export class TrustFlowEscrowClient {
    * you pass back as `cursor` on the next call to advance through results.
    * When `nextCursor` is `null` (or `hasMore` is `false`) you have reached
    * the last page.
+  *
+  * Network calls automatically retry transient backend failures (`429`, `5xx`,
+  * and short-lived network errors) using exponential backoff.
    *
    * @param params - Optional filter and pagination parameters
    * @param params.cursor - Opaque cursor from a previous response; omit to start from the first page
    * @param params.limit - Records per page (default 20, max 100)
    * @param params.status - Filter by escrow status
-   * @param params.depositor:2Filter by depositor address
+  * @param params.depositor - Filter by depositor address
    * @param params.beneficiary - Filter by beneficiary address
    *
    * @returns `{ ok: true, data: GigsPage }` on success, `{ ok: false, error }` on failure
@@ -85,24 +89,18 @@ export class TrustFlowEscrowClient {
       query.set('beneficiary', params.beneficiary);
     }
 
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.contractConfig.apiKey) {
-      headers['Authorization'] = `Bearer ${this.contractConfig.apiKey}`;
-    }
+    const http = createApiHttpClient({
+      baseURL: this.contractConfig.apiBaseUrl,
+      apiKey: this.contractConfig.apiKey,
+    });
 
-    let res: Response;
     try {
-      res = await fetch(`${this.contractConfig.apiBaseUrl}/gigs?${query}`, { headers });
+      const response = await http.get<GigsPage>('/gigs', {
+        params: Object.fromEntries(query.entries()),
+      });
+      return { ok: true, data: response.data };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { ok: false, error: `Network error: ${message}` };
+      return { ok: false, error: toApiErrorMessage(err) };
     }
-
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}: ${res.statusText}` };
-    }
-
-    const json = await res.json();
-    return { ok: true, data: json as GigsPage };
   }
 }

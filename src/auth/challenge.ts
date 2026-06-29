@@ -1,31 +1,52 @@
+import { createApiHttpClient } from '../utils/http';
+
 export interface AuthChallenge {
   challenge: string;
   expiresAt: number;
   address: string;
 }
 
-export async function requestChallenge(apiUrl: string, address: string): Promise<AuthChallenge> {
-  const res = await fetch(`${apiUrl}/auth/challenge?address=${address}`);
-  if (!res.ok) {
-    throw new Error('Failed to get challenge');
-  }
-  const { challenge } = (await res.json()) as { challenge: string };
-  return { challenge, expiresAt: Date.now() + 60_000, address };
+export interface AuthRequestOptions {
+  timeoutMs?: number;
 }
 
+/**
+ * Requests a signing challenge from the TrustFlow backend.
+ *
+ * Transient backend failures are automatically retried with exponential backoff.
+ */
+export async function requestChallenge(
+  apiUrl: string,
+  address: string,
+  options: AuthRequestOptions = {},
+): Promise<AuthChallenge> {
+  const http = createApiHttpClient({ baseURL: apiUrl, timeoutMs: options.timeoutMs });
+  try {
+    const response = await http.get<{ challenge: string }>('/auth/challenge', {
+      params: { address },
+    });
+    return { challenge: response.data.challenge, expiresAt: Date.now() + 60_000, address };
+  } catch {
+    throw new Error('Failed to get challenge');
+  }
+}
+
+/**
+ * Verifies a signature and exchanges it for a backend session token.
+ *
+ * Transient backend failures are automatically retried with exponential backoff.
+ */
 export async function verifyAndGetToken(
   apiUrl: string,
   address: string,
   signature: string,
+  options: AuthRequestOptions = {},
 ): Promise<string> {
-  const res = await fetch(`${apiUrl}/auth/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ address, signature }),
-  });
-  if (!res.ok) {
+  const http = createApiHttpClient({ baseURL: apiUrl, timeoutMs: options.timeoutMs });
+  try {
+    const response = await http.post<{ token: string }>('/auth/verify', { address, signature });
+    return response.data.token;
+  } catch {
     throw new Error('Signature verification failed');
   }
-  const { token } = (await res.json()) as { token: string };
-  return token;
 }
