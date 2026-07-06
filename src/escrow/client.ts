@@ -43,15 +43,15 @@ export class TrustFlowEscrowClient {
    * you pass back as `cursor` on the next call to advance through results.
    * When `nextCursor` is `null` (or `hasMore` is `false`) you have reached
    * the last page.
-  *
-  * Network calls automatically retry transient backend failures (`429`, `5xx`,
-  * and short-lived network errors) using exponential backoff.
+   *
+   * Network calls automatically retry transient backend failures (`429`, `5xx`,
+   * and short-lived network errors) using exponential backoff.
    *
    * @param params - Optional filter and pagination parameters
    * @param params.cursor - Opaque cursor from a previous response; omit to start from the first page
    * @param params.limit - Records per page (default 20, max 100)
    * @param params.status - Filter by escrow status
-  * @param params.depositor - Filter by depositor address
+   * @param params.depositor - Filter by depositor address
    * @param params.beneficiary - Filter by beneficiary address
    *
    * @returns `{ ok: true, data: GigsPage }` on success, `{ ok: false, error }` on failure
