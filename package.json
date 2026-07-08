@@ -31,6 +31,8 @@
   "license": "MIT",
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",
+    "axios": "^1.18.1",
+    "axios-retry": "^4.5.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
