@@ -19,33 +19,80 @@ npm install @trustflow/sdk
 yarn add @trustflow/sdk
 ```
 
-### Basic Usage
+### 1 — Connect to the Network
 
 ```typescript
 import { TrustFlowClient } from '@trustflow/sdk';
-import { createEscrow } from '@trustflow/sdk/escrow';
 
-// Initialize client
+const client = new TrustFlowClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET', // or 'MAINNET'
+});
+
+await client.connect();
+console.log('Connected to', client.network);
+```
+
+### 2 — Create an Escrow
+
+```typescript
+import { TrustFlowEscrowClient, EscrowBuilder } from '@trustflow/sdk';
+
+const escrowClient = new TrustFlowEscrowClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET',
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+});
+
+const params = new EscrowBuilder()
+  .setDepositor('GDEPOSITOR...')
+  .setBeneficiary('GBENEFICIARY...')
+  .setAmount('50') // XLM
+  .setDeadline(17280) // ~1 day in ledgers
+  .build();
+
+const result = await escrowClient.createEscrow(params);
+if (result.ok) {
+  console.log('Escrow ID:', result.data.escrowId);
+  console.log('Tx Hash:', result.data.txHash);
+}
+```
+
+### 3 — Fund & Release an Escrow
+
+```typescript
+import { TrustFlowClient } from '@trustflow/sdk';
+import { createEscrow, releaseEscrow } from '@trustflow/sdk/escrow';
+import { connectWallet } from '@trustflow/sdk/wallet';
+import { xlmToStroops } from '@trustflow/sdk/utils';
+
+const wallet = await connectWallet('freighter');
 const client = new TrustFlowClient({
   contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
   network: 'TESTNET',
 });
-
 await client.connect();
 
-// Create an escrow
+// Create
 const escrow = await createEscrow(client, {
-  sender: 'GDEPOSITOR...',
-  recipient: 'GBENEFICIARY...',
-  amountStroops: '1000000',
+  sender: wallet.publicKey,
+  recipient: 'GRECIPIENT...',
+  amountStroops: xlmToStroops('50'),
   durationBlocks: 17280,
   metadata: { orderId: 'ORD-001' },
 });
-
 console.log('Escrow created:', escrow.id);
+
+// Release
+const txHash = await releaseEscrow(client, {
+  escrowId: escrow.id,
+  caller: wallet.publicKey,
+});
+console.log('Released! Transaction:', txHash);
 ```
 
-See [examples/](./examples/) for more complete examples.
+See [docs/QUICKSTART.md](./docs/QUICKSTART.md) for the full walkthrough including disputes, multi-sig, and pagination.
 
 ### Multi-Sig Escrow (M-of-N)
 
@@ -93,14 +140,14 @@ See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full wa
 - **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
 - **🔁 Backend API Auto-Retries**: Resilient backend calls via `axios-retry` for transient failures
-- **🔑 Wallet Integration**: Built-in support for Freighter and Albedo wallets
+- **🔑 Wallet Integration**: Built-in support for Freighter wallet
 - **📊 Event Monitoring**: Real-time escrow state change tracking
 - **🛡️ Type Safety**: Full TypeScript support with Zod validation schemas
 - **🧪 Test Coverage**: Comprehensive Jest test suite
 
 ### Architecture Highlights
 
-- **Result Types**: No thrown exceptions in public APIs - all errors returned as `SDKResult<T>`
+- **Result Types**: No thrown exceptions in public APIs — all errors returned as `SDKResult<T>`
 - **Immutable Builders**: Fluent APIs like `EscrowBuilder` for parameter construction
 - **Network Agnostic**: Easily switch between Testnet and Mainnet
 - **Pure Utilities**: Side-effect-free helper functions for formatting and validation
@@ -111,10 +158,10 @@ Read more in [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ## 📚 Documentation
 
-- **[Quick Start Guide](./docs/QUICKSTART.md)** - Get up and running in 5 minutes
-- **[API Reference](./docs/API.md)** - Complete API documentation
-- **[Architecture](./docs/ARCHITECTURE.md)** - Design principles and module structure
-- **[Examples](./examples/)** - Working code examples for common use cases
+- **[Quick Start Guide](./docs/QUICKSTART.md)** — Get up and running in 5 minutes
+- **[API Reference](./docs/API.md)** — Complete API documentation
+- **[Architecture](./docs/ARCHITECTURE.md)** — Design principles and module structure
+- **[Examples](./examples/)** — Working code examples for common use cases
 
 ---
 
