@@ -14,7 +14,11 @@ export type TrustFlowErrorCode =
   | 'MULTISIG_ALREADY_SIGNED'
   | 'MULTISIG_EXPIRED'
   | 'MULTISIG_INVALID_SIGNER'
-  | 'MULTISIG_XDR_ERROR';
+  | 'MULTISIG_XDR_ERROR'
+  | 'ASSEMBLY_ERROR'
+  | 'FEE_BUMP_ERROR'
+  | 'SUBMISSION_ERROR'
+  | 'RETRY_EXHAUSTED';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
@@ -59,5 +63,33 @@ export class TrustFlowError extends Error {
 
   static multiSigXdrError(detail: string): TrustFlowError {
     return new TrustFlowError(`Multi-sig XDR error: ${detail}`, 'MULTISIG_XDR_ERROR');
+  }
+
+  static assemblyFailed(detail: string, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(`Transaction assembly failed: ${detail}`, 'ASSEMBLY_ERROR', cause);
+  }
+
+  static simulationFailed(detail: string, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(`Simulation failed: ${detail}`, 'SIMULATION_ERROR', cause);
+  }
+
+  static feeBumpFailed(detail: string, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(`Fee-bump construction failed: ${detail}`, 'FEE_BUMP_ERROR', cause);
+  }
+
+  static submissionFailed(detail: string, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(
+      `Transaction submission failed: ${detail}`,
+      'SUBMISSION_ERROR',
+      cause,
+    );
+  }
+
+  static retryExhausted(stage: string, attempts: number, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(
+      `Retries exhausted for ${stage} after ${attempts} attempt(s)`,
+      'RETRY_EXHAUSTED',
+      cause,
+    );
   }
 }
