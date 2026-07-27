@@ -137,6 +137,7 @@ See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full wa
 ### Current Capabilities
 
 - **🔐 Escrow Management**: Create, fund, release, and monitor escrows
+- **🚀 Transaction Pipeline**: Assemble, simulate, auto-adjust resource fees, fee-bump, and retry Soroban transactions via `TransactionPipeline`, with typed `PipelineResult<T>` errors
 - **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
 - **🔁 Backend API Auto-Retries**: Resilient backend calls via `axios-retry` for transient failures
@@ -172,7 +173,7 @@ The SDK is under active development. Here's what's coming:
 ### In Progress
 - [x] Tsup bundler configuration for ESM/CJS exports
 - [ ] NPM publishing pipeline with provenance
-- [ ] Simulation wrappers for transaction cost estimation
+- [x] Simulation wrappers for transaction cost estimation (`TransactionPipeline`)
 - [x] Auto-retry logic for backend API endpoints (`axios-retry`)
 
 ### Planned Features
