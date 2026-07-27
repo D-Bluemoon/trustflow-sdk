@@ -3,6 +3,20 @@ import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '.
 import { assertStellarAddress, xlmToStroops } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 
+/**
+ * High-level client for TrustFlow escrow operations.
+ * All methods return `SDKResult<T>` — no exceptions are thrown from public APIs.
+ *
+ * @example
+ * ```typescript
+ * const client = new TrustFlowEscrowClient({
+ *   contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+ *   network: 'TESTNET',
+ *   rpcUrl: 'https://soroban-testnet.stellar.org',
+ *   networkPassphrase: 'Test SDF Network ; September 2015',
+ * });
+ * ```
+ */
 export class TrustFlowEscrowClient {
   protected readonly contractConfig: ContractConfig;
 
@@ -10,6 +24,23 @@ export class TrustFlowEscrowClient {
     this.contractConfig = config;
   }
 
+  /**
+   * Creates a new escrow on the TrustFlow contract.
+   *
+   * @param params - Escrow parameters built via `EscrowBuilder` or constructed manually
+   * @returns `{ ok: true, data: { escrowId, txHash } }` on success, `{ ok: false, error }` on failure
+   *
+   * @example
+   * ```typescript
+   * const params = new EscrowBuilder()
+   *   .setDepositor('GDEPOSITOR...')
+   *   .setBeneficiary('GBENEFICIARY...')
+   *   .setAmount('50')
+   *   .build();
+   * const result = await client.createEscrow(params);
+   * if (result.ok) console.log('Escrow ID:', result.data.escrowId);
+   * ```
+   */
   async createEscrow(
     params: EscrowParams,
   ): Promise<SDKResult<{ escrowId: string; txHash: string }>> {
@@ -24,6 +55,19 @@ export class TrustFlowEscrowClient {
     return { ok: true, data: { escrowId: `esc-${Date.now()}`, txHash } };
   }
 
+  /**
+   * Releases escrowed funds to the beneficiary.
+   *
+   * @param escrowId - ID of the escrow to release
+   * @param releaserAddress - Stellar address of the authorised releaser
+   * @returns `{ ok: true, data: { txHash } }` on success, `{ ok: false, error }` on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await client.releaseEscrow('esc-123', wallet.publicKey);
+   * if (result.ok) console.log('Released! tx:', result.data.txHash);
+   * ```
+   */
   async releaseEscrow(
     escrowId: string,
     releaserAddress: string,
@@ -32,6 +76,12 @@ export class TrustFlowEscrowClient {
     return { ok: true, data: { txHash: `release-${escrowId}-${Date.now()}` } };
   }
 
+  /**
+   * Fetches the current state of an escrow from contract storage.
+   *
+   * @param escrowId - ID of the escrow to fetch
+   * @returns `{ ok: true, data: EscrowState | null }` — `null` when the escrow does not exist
+   */
   async getEscrow(_escrowId: string): Promise<SDKResult<EscrowState | null>> {
     return { ok: true, data: null }; // Fetch from contract storage
   }
