@@ -105,15 +105,15 @@ prototype. Instead, this PR:
 
 ## 5. Follow-up implementation issues filed
 
-- Backend: add `expiresIn`/`expiresAt` to the `/auth/verify` response so the SDK can trust a real
-  token TTL instead of a client-side default.
-- SDK: implement a backend-backed `MultiSigStateStore` and wire it into `MultiSigEscrowClient`
-  (async API — breaking change, needs a major version bump) once the corresponding backend
-  endpoints exist.
-- SDK: consolidate `TransactionPipeline`'s internal `withRetry` on top of `src/utils/retry.ts` to
-  remove the duplicated backoff implementation.
-
-(Links added once the issues are created — see PR description.)
+- [#82](https://github.com/trustflow-protocol/trustflow-sdk/issues/82) — Backend: add
+  `expiresIn`/`expiresAt` to the `/auth/verify` response so the SDK can trust a real token TTL
+  instead of a client-side default.
+- [#83](https://github.com/trustflow-protocol/trustflow-sdk/issues/83) — SDK: implement a
+  backend-backed `MultiSigStateStore` and wire it into `MultiSigEscrowClient` (async API —
+  breaking change, needs a major version bump) once the corresponding backend endpoints exist.
+- [#84](https://github.com/trustflow-protocol/trustflow-sdk/issues/84) — SDK: consolidate
+  `TransactionPipeline`'s internal `withRetry` on top of `src/utils/retry.ts` to remove the
+  duplicated backoff implementation.
 
 ## 6. Blocking unknowns
 
