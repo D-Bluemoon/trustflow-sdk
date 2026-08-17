@@ -498,4 +498,82 @@ describe('MultiSigEscrowClient', () => {
       expect(client.listOperations('no-such-escrow')).toHaveLength(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // exportState / importState
+  // -------------------------------------------------------------------------
+  describe('exportState / importState', () => {
+    it('returns undefined for an unknown operationId', () => {
+      expect(client.exportState('no-such-op')).toBeUndefined();
+    });
+
+    it('round-trips operation state through export/import into a fresh client', () => {
+      const init = client.initMultiSigOperation({
+        escrowId: ESCROW_ID,
+        signers: [KP_A.publicKey(), KP_B.publicKey()],
+        threshold: 2,
+        operationType: 'release',
+        unsignedXdr: BASE_XDR,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
+      expect(init.ok).toBe(true);
+      if (!init.ok) return;
+      const operationId = init.data.operationId;
+
+      client.addSignature({ operationId, signerAddress: KP_A.publicKey(), signedXdr: SIGNED_A });
+
+      const snapshot = client.exportState(operationId);
+      expect(snapshot).toBeDefined();
+      if (!snapshot) return;
+
+      const otherClient = new MultiSigEscrowClient(CONTRACT_CONFIG);
+      expect(otherClient.getMultiSigStatus(operationId).ok).toBe(false);
+
+      otherClient.importState(snapshot);
+
+      const status = otherClient.getMultiSigStatus(operationId);
+      expect(status.ok).toBe(true);
+      if (status.ok) {
+        expect(status.data.signaturesCollected).toBe(1);
+        expect(status.data.signersSigned).toContain(KP_A.publicKey());
+      }
+
+      // Continuing the flow on the second process's client should work as normal.
+      const completed = otherClient.addSignature({
+        operationId,
+        signerAddress: KP_B.publicKey(),
+        signedXdr: SIGNED_B,
+      });
+      expect(completed.ok).toBe(true);
+      if (completed.ok) {
+        expect(completed.data.isReady).toBe(true);
+      }
+    });
+
+    it('does not mutate the exporting client when the importing client is mutated', () => {
+      const init = client.initMultiSigOperation({
+        escrowId: ESCROW_ID,
+        signers: [KP_A.publicKey(), KP_B.publicKey()],
+        threshold: 2,
+        operationType: 'release',
+        unsignedXdr: BASE_XDR,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
+      expect(init.ok).toBe(true);
+      if (!init.ok) return;
+      const operationId = init.data.operationId;
+
+      const snapshot = client.exportState(operationId)!;
+      const otherClient = new MultiSigEscrowClient(CONTRACT_CONFIG);
+      otherClient.importState(snapshot);
+
+      otherClient.addSignature({ operationId, signerAddress: KP_A.publicKey(), signedXdr: SIGNED_A });
+
+      const original = client.getMultiSigStatus(operationId);
+      expect(original.ok).toBe(true);
+      if (original.ok) {
+        expect(original.data.signaturesCollected).toBe(0);
+      }
+    });
+  });
 });

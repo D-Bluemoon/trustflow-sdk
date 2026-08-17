@@ -1,4 +1,12 @@
-import { saveSession, loadSession, clearSession } from '../src/auth/session';
+import {
+  saveSession,
+  loadSession,
+  clearSession,
+  isSessionExpired,
+  configureSessionStorage,
+  resetSessionStorage,
+  SessionStorageAdapter,
+} from '../src/auth/session';
 
 describe('Session management', () => {
   const mockStorage: Record<string, string> = {};
@@ -21,5 +29,50 @@ describe('Session management', () => {
     saveSession('tok', 'GABC');
     clearSession();
     expect(loadSession()).toBeNull();
+  });
+
+  describe('token expiry', () => {
+    afterEach(() => clearSession());
+
+    it('defaults to a non-expired session when no expiresAt is given', () => {
+      saveSession('tok123', 'GABC');
+      expect(isSessionExpired()).toBe(false);
+    });
+
+    it('honors an explicit expiresAt in the past', () => {
+      saveSession('tok123', 'GABC', Date.now() - 1000);
+      expect(isSessionExpired()).toBe(true);
+    });
+
+    it('honors an explicit expiresAt in the future', () => {
+      saveSession('tok123', 'GABC', Date.now() + 60_000);
+      expect(isSessionExpired()).toBe(false);
+    });
+
+    it('treats a missing session as expired', () => {
+      expect(isSessionExpired()).toBe(true);
+    });
+  });
+
+  describe('configureSessionStorage', () => {
+    afterEach(() => resetSessionStorage());
+
+    it('routes reads/writes through an injected adapter', () => {
+      const backing: Record<string, string> = {};
+      const adapter: SessionStorageAdapter = {
+        get: (k) => backing[k] ?? null,
+        set: (k, v) => { backing[k] = v; },
+        remove: (k) => { delete backing[k]; },
+      };
+      configureSessionStorage(adapter);
+
+      saveSession('custom-tok', 'GXYZ');
+      expect(loadSession()?.token).toBe('custom-tok');
+      expect(backing['trustflow_token']).toBe('custom-tok');
+
+      // The globally-mocked localStorage from the outer describe block must
+      // not have been touched while the override is active.
+      expect(mockStorage['trustflow_token']).not.toBe('custom-tok');
+    });
   });
 });

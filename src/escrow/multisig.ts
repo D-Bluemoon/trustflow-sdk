@@ -11,6 +11,7 @@ import type {
   GetStatusResult,
   SubmitMultiSigResult,
   GetXdrResult,
+  MultiSigStateSnapshot,
 } from '../types/multisig';
 import { submitTransaction } from '../stellar/transaction';
 
@@ -227,6 +228,43 @@ export class MultiSigEscrowClient {
    */
   listOperations(escrowId: string): MultiSigOperation[] {
     return Array.from(this.operations.values()).filter((op) => op.escrowId === escrowId);
+  }
+
+  /**
+   * Serializes one operation's state so it can be handed to an external
+   * store (e.g. an integrator's own backend) and later restored via
+   * `importState`, letting independent signer processes coordinate without
+   * sharing this client's in-memory `Map`.
+   *
+   * Stopgap ahead of a native `MultiSigStateStore` — see
+   * docs/spikes/issue-79-retry-session-multisig.md.
+   *
+   * @param operationId - ID returned by `initMultiSigOperation`
+   */
+  exportState(operationId: string): MultiSigStateSnapshot | undefined {
+    const operation = this.operations.get(operationId);
+    return operation
+      ? {
+          ...operation,
+          signers: [...operation.signers],
+          collectedSignatures: [...operation.collectedSignatures],
+        }
+      : undefined;
+  }
+
+  /**
+   * Restores a previously-exported operation snapshot into this client,
+   * making it available to subsequent `addSignature` / `getMultiSigStatus`
+   * / `submitWhenReady` calls in this process.
+   *
+   * @param snapshot - A value previously returned by `exportState`
+   */
+  importState(snapshot: MultiSigStateSnapshot): void {
+    this.operations.set(snapshot.operationId, {
+      ...snapshot,
+      signers: [...snapshot.signers],
+      collectedSignatures: [...snapshot.collectedSignatures],
+    });
   }
 
   // ---------------------------------------------------------------------------
