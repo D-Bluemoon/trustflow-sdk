@@ -529,7 +529,8 @@ describe('MultiSigEscrowClient', () => {
       const otherClient = new MultiSigEscrowClient(CONTRACT_CONFIG);
       expect(otherClient.getMultiSigStatus(operationId).ok).toBe(false);
 
-      otherClient.importState(snapshot);
+      const imported = otherClient.importState(snapshot);
+      expect(imported.ok).toBe(true);
 
       const status = otherClient.getMultiSigStatus(operationId);
       expect(status.ok).toBe(true);
@@ -573,6 +574,42 @@ describe('MultiSigEscrowClient', () => {
       expect(original.ok).toBe(true);
       if (original.ok) {
         expect(original.data.signaturesCollected).toBe(0);
+      }
+    });
+
+    it('rejects a malformed snapshot instead of throwing', () => {
+      const malformed = { operationId: 'op-1' } as unknown as ReturnType<
+        MultiSigEscrowClient['exportState']
+      >;
+      const result = client.importState(malformed!);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/escrowId/);
+      }
+      // Nothing should have been admitted into the client's state.
+      expect(client.getMultiSigStatus('op-1').ok).toBe(false);
+    });
+
+    it('rejects a snapshot with a non-array signers field', () => {
+      const init = client.initMultiSigOperation({
+        escrowId: ESCROW_ID,
+        signers: [KP_A.publicKey()],
+        threshold: 1,
+        operationType: 'release',
+        unsignedXdr: BASE_XDR,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
+      expect(init.ok).toBe(true);
+      if (!init.ok) return;
+
+      const snapshot = client.exportState(init.data.operationId)!;
+      const corrupted = { ...snapshot, signers: 'not-an-array' } as unknown as typeof snapshot;
+
+      const otherClient = new MultiSigEscrowClient(CONTRACT_CONFIG);
+      const result = otherClient.importState(corrupted);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/signers/);
       }
     });
   });

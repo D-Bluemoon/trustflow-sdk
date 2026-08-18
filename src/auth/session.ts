@@ -79,7 +79,18 @@ export function resetSessionStorage(): void {
 export interface Session {
   token: string;
   address: string;
-  /** UNIX ms timestamp after which the token should be treated as stale. */
+  /**
+   * UNIX ms timestamp after which the token should be treated as stale.
+   *
+   * Best-effort only: the backend's `/auth/verify` response does not
+   * currently return a token TTL, so unless a caller passes `expiresAt`
+   * explicitly to `saveSession`, this is a conservative client-side guess
+   * (`DEFAULT_SESSION_TTL_MS`), not a guarantee of the token's real
+   * server-side lifetime. Do not rely on it for security-sensitive
+   * decisions — always be prepared to handle a `401` from the backend even
+   * when `isSessionExpired()` reports `false`. Tracked in
+   * https://github.com/trustflow-protocol/trustflow-sdk/issues/82.
+   */
   expiresAt: number;
 }
 
@@ -88,7 +99,8 @@ export interface Session {
  *
  * @param expiresAt - UNIX ms timestamp when the token expires. Defaults to
  *   `DEFAULT_SESSION_TTL_MS` from now when omitted, since the backend does
- *   not currently return a token TTL (see docs/spikes/issue-79-retry-session-multisig.md).
+ *   not currently return a token TTL — see the `expiresAt` caveat on
+ *   {@link Session} and docs/spikes/issue-79-retry-session-multisig.md.
  */
 export function saveSession(token: string, address: string, expiresAt?: number): void {
   const storage = getStorage();
@@ -105,8 +117,12 @@ export function loadSession(): Session | null {
     return null;
   }
   const expiresAtRaw = storage.get(EXPIRES_AT_KEY);
-  const expiresAt = expiresAtRaw ? Number(expiresAtRaw) : Date.now() + DEFAULT_SESSION_TTL_MS;
-  return { token, address, expiresAt };
+  // A missing value defaults to a fresh TTL (session predates expiry tracking).
+  // A malformed value (corrupted storage, hand-edited) is treated as already
+  // expired rather than silently valid forever.
+  const expiresAt =
+    expiresAtRaw === null ? Date.now() + DEFAULT_SESSION_TTL_MS : Number(expiresAtRaw);
+  return { token, address, expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0 };
 }
 
 export function clearSession(): void {

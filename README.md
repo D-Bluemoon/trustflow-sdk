@@ -130,6 +130,65 @@ console.log('Released! tx:', result.data?.txHash);
 
 See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full walkthrough.
 
+### Session Storage (Browser vs Node)
+
+`saveSession` / `loadSession` / `clearSession` detect their environment per call (via
+`typeof localStorage`), so no setup is needed in either place:
+
+- **Browser**: uses `localStorage` automatically — sessions survive page reloads.
+- **Node / CLI / backend**: falls back to an in-memory store scoped to the current process.
+  This **does not survive process restarts.** If you need durability (a long-running server, a
+  CLI invoked repeatedly), inject your own adapter:
+
+  ```typescript
+  import { configureSessionStorage } from '@trustflow/sdk';
+
+  configureSessionStorage({
+    get: (key) => myFileOrRedisStore.get(key),
+    set: (key, value) => myFileOrRedisStore.set(key, value),
+    remove: (key) => myFileOrRedisStore.delete(key),
+  });
+  ```
+
+- **SSR / bundler edge cases** (Next.js, Remix, etc.): `typeof localStorage` can be ambiguous
+  when server and client code share a module graph. If session calls run on the server during
+  SSR, they'll silently use the in-memory fallback for that request rather than throwing — which
+  is usually not what you want. Call `configureSessionStorage()` explicitly with a no-op or
+  server-appropriate adapter for server-rendered code paths, and only rely on the automatic
+  `localStorage` detection in code you know runs client-side.
+
+Sessions also carry an `expiresAt`, checked via `isSessionExpired()`. This is a **best-effort,
+client-side value** — the backend does not currently return a token TTL (tracked in
+[#82](https://github.com/trustflow-protocol/trustflow-sdk/issues/82)), so treat it as a lower
+bound, not a guarantee, and still handle a `401` from the backend even when
+`isSessionExpired()` returns `false`.
+
+### Multisig Cross-Process Coordination
+
+`MultiSigEscrowClient` keeps operation state in-memory per process. To coordinate signers running
+in separate processes today, round-trip state through your own store with `exportState()` /
+`importState()`:
+
+```typescript
+// Process A (initiator)
+const snapshot = client.exportState(operationId); // -> hand this to your own backend/queue
+
+// Process B (a signer), after fetching that snapshot from your store
+const imported = client.importState(snapshot);
+if (!imported.ok) {
+  throw new Error(imported.error); // malformed/corrupted snapshot
+}
+client.addSignature({ operationId, signerAddress, signedXdr });
+const reExported = client.exportState(operationId); // hand the updated state back to your store
+```
+
+`importState` overwrites any existing local operation with the same `operationId` — **last write
+wins.** If two processes both mutate after diverging from the same snapshot and both re-export,
+importing one after the other discards the first's signatures rather than merging them.
+Serializing concurrent writes (e.g. one writer at a time through your store) is the caller's
+responsibility until a native, backend-backed `MultiSigStateStore` lands — tracked in
+[#83](https://github.com/trustflow-protocol/trustflow-sdk/issues/83).
+
 ---
 
 ## ✨ Features

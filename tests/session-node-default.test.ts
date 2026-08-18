@@ -22,3 +22,34 @@ describe('Session management (Node default, no localStorage)', () => {
     expect(loadSession()).toBeNull();
   });
 });
+
+describe('Session management (environment detection)', () => {
+  afterEach(() => {
+    delete (global as any).localStorage;
+    clearSession();
+  });
+
+  it('picks the in-memory adapter when localStorage is absent, and localStorage when present', () => {
+    expect(typeof (global as any).localStorage).toBe('undefined');
+    saveSession('node-tok', 'GNODE');
+    expect(loadSession()?.token).toBe('node-tok');
+
+    const backing: Record<string, string> = {};
+    (global as any).localStorage = {
+      getItem: (k: string) => backing[k] ?? null,
+      setItem: (k: string, v: string) => {
+        backing[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete backing[k];
+      },
+    };
+
+    // A session saved after localStorage becomes available goes through it,
+    // not the earlier in-memory fallback — detection happens per-call, not
+    // once at import time, so this doesn't require re-importing the module.
+    saveSession('browser-tok', 'GBROWSER');
+    expect(backing['trustflow_token']).toBe('browser-tok');
+    expect(loadSession()?.token).toBe('browser-tok');
+  });
+});

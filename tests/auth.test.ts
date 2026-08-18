@@ -52,6 +52,17 @@ describe('Session management', () => {
     it('treats a missing session as expired', () => {
       expect(isSessionExpired()).toBe(true);
     });
+
+    it('treats a malformed stored expiresAt as expired rather than valid forever', () => {
+      saveSession('tok123', 'GABC');
+      // Corrupt the persisted expiry directly, as if storage was hand-edited
+      // or written by an older/incompatible client.
+      (global as any).localStorage.setItem('trustflow_expires_at', 'not-a-number');
+
+      expect(isSessionExpired()).toBe(true);
+      // The token/address themselves should still load fine.
+      expect(loadSession()?.token).toBe('tok123');
+    });
   });
 
   describe('configureSessionStorage', () => {
@@ -73,6 +84,24 @@ describe('Session management', () => {
       // The globally-mocked localStorage from the outer describe block must
       // not have been touched while the override is active.
       expect(mockStorage['trustflow_token']).not.toBe('custom-tok');
+    });
+
+    it('propagates errors from an adapter that fails, rather than swallowing them', () => {
+      const throwingAdapter: SessionStorageAdapter = {
+        get: () => {
+          throw new Error('storage unavailable');
+        },
+        set: () => {
+          throw new Error('storage unavailable');
+        },
+        remove: () => {
+          throw new Error('storage unavailable');
+        },
+      };
+      configureSessionStorage(throwingAdapter);
+
+      expect(() => saveSession('tok', 'GABC')).toThrow('storage unavailable');
+      expect(() => loadSession()).toThrow('storage unavailable');
     });
   });
 });

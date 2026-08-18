@@ -39,6 +39,15 @@ Actions taken in this PR:
 - Kept `src/utils/retry.ts` as-is: it's a legitimate public generic-purpose utility with its own
   tests: removing it would be a breaking change for consumers who may already depend on it.
 
+**Removal-safety verification for `src/stellar/rpc.ts`** (re-confirmed per review request):
+repo-wide search (`grep -rn "stellar/rpc\|simulateAndAssemble"` across `src/`, `tests/`,
+`examples/`, `README.md`, `docs/`) turns up zero hits outside this spike's own doc/PR. It was
+never re-exported from `src/stellar/index.ts` or `src/index.ts` (both barrels list their exports
+explicitly and never named `rpc`), never had a test file, and — checking its git history
+(`2858c1c feat(sdk): add Soroban RPC simulate helper`) — was never mentioned in `README.md` or
+`docs/API.md`. There is no public API surface or documentation to deprecate; the removal has no
+external footprint.
+
 Follow-up (not done in this spike, filed as a separate issue): `TransactionPipeline`'s internal
 `withRetry` duplicates the backoff loop in `utils/retry.ts` with a different signature (attempt
 callback, policy object). Worth consolidating so there is one retry primitive, but that's a
@@ -68,7 +77,17 @@ Problems in `auth/session.ts` today:
 with no TTL. Without a backend-supplied expiry, the SDK cannot know the *real* token lifetime — it
 can only apply a conservative client-side default (implemented here as 15 minutes, configurable)
 and treat that as a lower bound, not a guarantee. **Needs backend coordination**: add
-`expiresIn`/`expiresAt` to the `/auth/verify` response. Flagged as a follow-up issue.
+`expiresIn`/`expiresAt` to the `/auth/verify` response. Flagged as follow-up issue
+[#82](https://github.com/trustflow-protocol/trustflow-sdk/issues/82).
+
+**Compatibility note (client-side `expiresAt` is best-effort, not a merge blocker):** this PR does
+not wait on #82 to land. `isSessionExpired()` and the persisted `expiresAt` are documented — in
+the `Session` interface's JSDoc, in `saveSession`'s JSDoc, and in the README's "Session Storage"
+section — as a best-effort client-side signal only, not a guarantee of the token's real
+server-side lifetime. Callers must still be prepared to handle a `401` from the backend even when
+`isSessionExpired()` reports `false`. Once #82 lands, `verifyAndGetToken` can pass a real
+`expiresAt` through to `saveSession` and the guessed default stops being used — no shape change
+required on the SDK side.
 
 ## 4. Multisig operation-state coordination (recommendation)
 
@@ -98,7 +117,13 @@ prototype. Instead, this PR:
   by round-tripping it through their own backend today) without waiting for the SDK to grow native
   async storage. This is deliberately additive — it does not change any existing method's
   signature or behavior, so it doesn't destabilize the tested sync API multisig consumers already
-  depend on.
+  depend on. `importState` validates the snapshot's shape and returns an `SDKResult` (matching the
+  rest of the class's error convention) rather than throwing on malformed input.
+  Conflict semantics — deliberately simple for a stopgap: `importState` is last-write-wins:
+  concurrent writers who diverge from the same exported snapshot and both re-export will have one
+  overwrite the other's signatures rather than merge. Serializing concurrent writes is the
+  caller's responsibility until the native store lands. Usage example and this caveat are also in
+  the README's "Multisig Cross-Process Coordination" section.
 - Full async, pluggable `MultiSigStateStore` wiring into `MultiSigEscrowClient` (which is a
   breaking API change, since every method would become `Promise`-returning) is left to the
   follow-up implementation issue, once the backend endpoints exist to back it.

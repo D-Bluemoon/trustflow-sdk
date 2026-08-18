@@ -131,3 +131,5 @@ export interface MultiSigStateStore {
  * `MultiSigStateStore` support.
  */
 export type MultiSigStateSnapshot = MultiSigOperation;
+
+export type ImportStateResult = SDKResult<{ operationId: string }>;
