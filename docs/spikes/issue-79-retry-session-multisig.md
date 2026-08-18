@@ -2,6 +2,14 @@
 
 Tracking issue: [#79](https://github.com/trustflow-protocol/trustflow-sdk/issues/79)
 
+**Compatibility & migration:** no breaking changes for existing consumers. `saveSession`,
+`loadSession`, `clearSession`, and every `MultiSigEscrowClient` method that existed before this
+spike keep their original signatures and behavior. The only new public surface — the pluggable
+session storage adapter, session `expiresAt`/`isSessionExpired`, `MultiSigStateStore`, and
+`MultiSigEscrowClient.exportState`/`importState` — is purely additive. Runtime behavior does
+change under Node: `saveSession` used to silently no-op there and now persists in-memory for the
+process lifetime (see §3).
+
 ## 1. Current-state audit
 
 The issue was filed against an earlier snapshot of the code. Since then `TransactionPipeline`
@@ -124,6 +132,13 @@ prototype. Instead, this PR:
   overwrite the other's signatures rather than merge. Serializing concurrent writes is the
   caller's responsibility until the native store lands. Usage example and this caveat are also in
   the README's "Multisig Cross-Process Coordination" section.
+  Every exported snapshot carries a `version` field (`MULTISIG_SNAPSHOT_VERSION`, currently `1`,
+  in `src/types/multisig.ts`). `importState` rejects a snapshot whose version is missing or
+  doesn't match, rather than guessing at an unfamiliar shape. This is the version-negotiation hook
+  for the day `MultiSigStateSnapshot`'s shape needs to change — bump the constant and give
+  `importState` an explicit per-version migration/rejection path then. It's a no-op today (only
+  version `1` exists), but is cheap to add now versus retrofitting it once real snapshots are
+  already stored in integrators' backends.
 - Full async, pluggable `MultiSigStateStore` wiring into `MultiSigEscrowClient` (which is a
   breaking API change, since every method would become `Promise`-returning) is left to the
   follow-up implementation issue, once the backend endpoints exist to back it.

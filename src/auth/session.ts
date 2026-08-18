@@ -117,9 +117,14 @@ export function loadSession(): Session | null {
     return null;
   }
   const expiresAtRaw = storage.get(EXPIRES_AT_KEY);
-  // A missing value defaults to a fresh TTL (session predates expiry tracking).
-  // A malformed value (corrupted storage, hand-edited) is treated as already
-  // expired rather than silently valid forever.
+  // Backward compatibility: a session written before expiry tracking existed
+  // (or by an older version of this SDK) has no `EXPIRES_AT_KEY` entry at
+  // all — `storage.get` returns `null`, not a malformed string. Treat that
+  // as unknown-but-fine and default to a fresh TTL from now, so upgrading
+  // doesn't retroactively expire sessions that predate this field.
+  // A *malformed* value (non-null, but not parseable — corrupted storage,
+  // hand-edited), by contrast, is treated as already expired rather than
+  // silently valid forever (see isSessionExpired()).
   const expiresAt =
     expiresAtRaw === null ? Date.now() + DEFAULT_SESSION_TTL_MS : Number(expiresAtRaw);
   return { token, address, expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0 };

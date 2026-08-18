@@ -125,11 +125,26 @@ export interface MultiSigStateStore {
 }
 
 /**
+ * Snapshot schema version produced by `MultiSigEscrowClient.exportState` and
+ * expected by `importState`. Bump this — and give `importState` an explicit
+ * migration/rejection path for older versions — if `MultiSigStateSnapshot`'s
+ * shape ever changes in a way older snapshots wouldn't satisfy. Versioning
+ * this now (even with only one version in existence) means a future schema
+ * change doesn't silently misinterpret an older snapshot serialized by an
+ * integrator's store; `importState` rejects a mismatched version outright
+ * instead of guessing.
+ */
+export const MULTISIG_SNAPSHOT_VERSION = 1;
+
+/**
  * Serializable snapshot of one multisig operation, for round-tripping state
  * through an external store (e.g. an integrator's own backend) between
  * `MultiSigEscrowClient.exportState` / `importState` calls, ahead of native
  * `MultiSigStateStore` support.
  */
-export type MultiSigStateSnapshot = MultiSigOperation;
+export interface MultiSigStateSnapshot extends MultiSigOperation {
+  /** See {@link MULTISIG_SNAPSHOT_VERSION}. */
+  version: number;
+}
 
 export type ImportStateResult = SDKResult<{ operationId: string }>;

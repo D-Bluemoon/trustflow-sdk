@@ -15,6 +15,7 @@ import type {
   MultiSigStateSnapshot,
   ImportStateResult,
 } from '../types/multisig';
+import { MULTISIG_SNAPSHOT_VERSION } from '../types/multisig';
 import { submitTransaction } from '../stellar/transaction';
 
 /**
@@ -248,6 +249,7 @@ export class MultiSigEscrowClient {
     return operation
       ? {
           ...operation,
+          version: MULTISIG_SNAPSHOT_VERSION,
           signers: [...operation.signers],
           collectedSignatures: [...operation.collectedSignatures],
         }
@@ -276,12 +278,15 @@ export class MultiSigEscrowClient {
       return validation;
     }
 
-    this.operations.set(snapshot.operationId, {
-      ...snapshot,
-      signers: [...snapshot.signers],
-      collectedSignatures: [...snapshot.collectedSignatures],
+    // `version` is a snapshot-transport concern, not part of the operation's
+    // own state — don't let it leak into the in-memory record.
+    const { version: _version, ...operation } = snapshot;
+    this.operations.set(operation.operationId, {
+      ...operation,
+      signers: [...operation.signers],
+      collectedSignatures: [...operation.collectedSignatures],
     });
-    return { ok: true, data: { operationId: snapshot.operationId } };
+    return { ok: true, data: { operationId: operation.operationId } };
   }
 
   // ---------------------------------------------------------------------------
@@ -294,6 +299,12 @@ export class MultiSigEscrowClient {
   ): { ok: true } | { ok: false; error: string } {
     if (!snapshot || typeof snapshot !== 'object') {
       return { ok: false, error: 'snapshot must be an object' };
+    }
+    if (snapshot.version !== MULTISIG_SNAPSHOT_VERSION) {
+      return {
+        ok: false,
+        error: `snapshot.version ${String(snapshot.version)} is not supported by this SDK (expected ${MULTISIG_SNAPSHOT_VERSION})`,
+      };
     }
     if (typeof snapshot.operationId !== 'string' || !snapshot.operationId) {
       return { ok: false, error: 'snapshot.operationId must be a non-empty string' };

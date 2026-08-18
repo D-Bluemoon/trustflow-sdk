@@ -525,6 +525,7 @@ describe('MultiSigEscrowClient', () => {
       const snapshot = client.exportState(operationId);
       expect(snapshot).toBeDefined();
       if (!snapshot) return;
+      expect(snapshot.version).toBe(1);
 
       const otherClient = new MultiSigEscrowClient(CONTRACT_CONFIG);
       expect(otherClient.getMultiSigStatus(operationId).ok).toBe(false);
@@ -578,7 +579,7 @@ describe('MultiSigEscrowClient', () => {
     });
 
     it('rejects a malformed snapshot instead of throwing', () => {
-      const malformed = { operationId: 'op-1' } as unknown as ReturnType<
+      const malformed = { version: 1, operationId: 'op-1' } as unknown as ReturnType<
         MultiSigEscrowClient['exportState']
       >;
       const result = client.importState(malformed!);
@@ -588,6 +589,36 @@ describe('MultiSigEscrowClient', () => {
       }
       // Nothing should have been admitted into the client's state.
       expect(client.getMultiSigStatus('op-1').ok).toBe(false);
+    });
+
+    it('rejects a snapshot with a missing or mismatched version', () => {
+      const init = client.initMultiSigOperation({
+        escrowId: ESCROW_ID,
+        signers: [KP_A.publicKey()],
+        threshold: 1,
+        operationType: 'release',
+        unsignedXdr: BASE_XDR,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      });
+      expect(init.ok).toBe(true);
+      if (!init.ok) return;
+
+      const snapshot = client.exportState(init.data.operationId)!;
+
+      const missingVersion = { ...snapshot } as { version?: number };
+      delete missingVersion.version;
+      const resultMissing = client.importState(missingVersion as typeof snapshot);
+      expect(resultMissing.ok).toBe(false);
+      if (!resultMissing.ok) {
+        expect(resultMissing.error).toMatch(/version/);
+      }
+
+      const futureVersion = { ...snapshot, version: 999 };
+      const resultFuture = client.importState(futureVersion);
+      expect(resultFuture.ok).toBe(false);
+      if (!resultFuture.ok) {
+        expect(resultFuture.error).toMatch(/version/);
+      }
     });
 
     it('rejects a snapshot with a non-array signers field', () => {

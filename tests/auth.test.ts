@@ -53,6 +53,21 @@ describe('Session management', () => {
       expect(isSessionExpired()).toBe(true);
     });
 
+    it('treats a pre-existing session with no stored expiresAt key as not expired (backward compatibility)', () => {
+      // Simulates a session written by a pre-expiry version of this SDK:
+      // only token/address were ever persisted, no `trustflow_expires_at`
+      // key exists at all (distinct from a malformed value — see below).
+      // loadSession() computes a fresh default TTL from "now" in this case,
+      // so an old session isn't treated as already-expired just because it
+      // predates expiry tracking.
+      (global as any).localStorage.setItem('trustflow_token', 'legacy-tok');
+      (global as any).localStorage.setItem('trustflow_address', 'GLEGACY');
+
+      const s = loadSession();
+      expect(s?.token).toBe('legacy-tok');
+      expect(isSessionExpired(s)).toBe(false);
+    });
+
     it('treats a malformed stored expiresAt as expired rather than valid forever', () => {
       saveSession('tok123', 'GABC');
       // Corrupt the persisted expiry directly, as if storage was hand-edited
