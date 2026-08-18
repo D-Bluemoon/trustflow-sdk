@@ -63,6 +63,10 @@ refactor of tested, shipped code and deserves its own review rather than riding 
 
 ## 3. Session storage & token lifecycle (recommendation)
 
+> See the README's **["Session Storage (Browser vs Node)"](../../README.md#session-storage-browser-vs-node)**
+> section for the concrete `configureSessionStorage()` adapter-injection example and the
+> SSR/bundler edge-case notes — this section covers the design rationale, not the how-to.
+
 Problems in `auth/session.ts` today:
 - `localStorage`-only; every call is a silent no-op under Node (CLI/backend integrators), which
   looks like it "works" (no exception) but never persists anything.
