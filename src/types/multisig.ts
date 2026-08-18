@@ -105,3 +105,46 @@ export type AddSignatureResult = SDKResult<MultiSigStatus>;
 export type GetStatusResult = SDKResult<MultiSigStatus>;
 export type SubmitMultiSigResult = SDKResult<MultiSigSubmitResult>;
 export type GetXdrResult = SDKResult<{ xdr: string }>;
+
+/**
+ * Target abstraction for coordinating multisig operation state across
+ * independent signer processes (e.g. backed by the TrustFlow backend's REST
+ * API), as recommended in docs/spikes/issue-79-retry-session-multisig.md.
+ *
+ * Not yet wired into `MultiSigEscrowClient` — that requires backend endpoints
+ * that don't exist yet, and would be a breaking (sync -> async) API change.
+ * Tracked as a follow-up implementation issue. The client's default,
+ * in-process store today is a plain `Map`, which satisfies this shape
+ * synchronously.
+ */
+export interface MultiSigStateStore {
+  get(operationId: string): Promise<MultiSigOperation | undefined>;
+  set(operationId: string, operation: MultiSigOperation): Promise<void>;
+  delete(operationId: string): Promise<void>;
+  listByEscrow(escrowId: EscrowId): Promise<MultiSigOperation[]>;
+}
+
+/**
+ * Snapshot schema version produced by `MultiSigEscrowClient.exportState` and
+ * expected by `importState`. Bump this — and give `importState` an explicit
+ * migration/rejection path for older versions — if `MultiSigStateSnapshot`'s
+ * shape ever changes in a way older snapshots wouldn't satisfy. Versioning
+ * this now (even with only one version in existence) means a future schema
+ * change doesn't silently misinterpret an older snapshot serialized by an
+ * integrator's store; `importState` rejects a mismatched version outright
+ * instead of guessing.
+ */
+export const MULTISIG_SNAPSHOT_VERSION = 1;
+
+/**
+ * Serializable snapshot of one multisig operation, for round-tripping state
+ * through an external store (e.g. an integrator's own backend) between
+ * `MultiSigEscrowClient.exportState` / `importState` calls, ahead of native
+ * `MultiSigStateStore` support.
+ */
+export interface MultiSigStateSnapshot extends MultiSigOperation {
+  /** See {@link MULTISIG_SNAPSHOT_VERSION}. */
+  version: number;
+}
+
+export type ImportStateResult = SDKResult<{ operationId: string }>;

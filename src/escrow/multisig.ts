@@ -4,6 +4,7 @@ import type {
   InitMultiSigParams,
   AddSignatureParams,
   MultiSigOperation,
+  MultiSigOperationStatus,
   MultiSigStatus,
   SignatureEntry,
   InitMultiSigResult,
@@ -11,7 +12,10 @@ import type {
   GetStatusResult,
   SubmitMultiSigResult,
   GetXdrResult,
+  MultiSigStateSnapshot,
+  ImportStateResult,
 } from '../types/multisig';
+import { MULTISIG_SNAPSHOT_VERSION } from '../types/multisig';
 import { submitTransaction } from '../stellar/transaction';
 
 /**
@@ -229,9 +233,106 @@ export class MultiSigEscrowClient {
     return Array.from(this.operations.values()).filter((op) => op.escrowId === escrowId);
   }
 
+  /**
+   * Serializes one operation's state so it can be handed to an external
+   * store (e.g. an integrator's own backend) and later restored via
+   * `importState`, letting independent signer processes coordinate without
+   * sharing this client's in-memory `Map`.
+   *
+   * Stopgap ahead of a native `MultiSigStateStore` — see
+   * docs/spikes/issue-79-retry-session-multisig.md.
+   *
+   * @param operationId - ID returned by `initMultiSigOperation`
+   */
+  exportState(operationId: string): MultiSigStateSnapshot | undefined {
+    const operation = this.operations.get(operationId);
+    return operation
+      ? {
+          ...operation,
+          version: MULTISIG_SNAPSHOT_VERSION,
+          signers: [...operation.signers],
+          collectedSignatures: [...operation.collectedSignatures],
+        }
+      : undefined;
+  }
+
+  /**
+   * Restores a previously-exported operation snapshot into this client,
+   * making it available to subsequent `addSignature` / `getMultiSigStatus`
+   * / `submitWhenReady` calls in this process.
+   *
+   * Conflict semantics: this overwrites any existing local operation with
+   * the same `operationId` — last write wins. If two processes both mutate
+   * (e.g. `addSignature`) after diverging from the same exported snapshot
+   * and both re-export, importing one after the other discards the first's
+   * signatures rather than merging them. Coordinating concurrent writers is
+   * the caller's responsibility until a native `MultiSigStateStore` backend
+   * (https://github.com/trustflow-protocol/trustflow-sdk/issues/83) can
+   * serialize writes centrally.
+   *
+   * @param snapshot - A value previously returned by `exportState`
+   */
+  importState(snapshot: MultiSigStateSnapshot): ImportStateResult {
+    const validation = this._validateSnapshot(snapshot);
+    if (!validation.ok) {
+      return validation;
+    }
+
+    // `version` is a snapshot-transport concern, not part of the operation's
+    // own state — don't let it leak into the in-memory record.
+    const { version: _version, ...operation } = snapshot;
+    this.operations.set(operation.operationId, {
+      ...operation,
+      signers: [...operation.signers],
+      collectedSignatures: [...operation.collectedSignatures],
+    });
+    return { ok: true, data: { operationId: operation.operationId } };
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /** Validates the shape of a snapshot before it's admitted into `this.operations`. */
+  private _validateSnapshot(
+    snapshot: MultiSigStateSnapshot,
+  ): { ok: true } | { ok: false; error: string } {
+    if (!snapshot || typeof snapshot !== 'object') {
+      return { ok: false, error: 'snapshot must be an object' };
+    }
+    if (snapshot.version !== MULTISIG_SNAPSHOT_VERSION) {
+      return {
+        ok: false,
+        error: `snapshot.version ${String(snapshot.version)} is not supported by this SDK (expected ${MULTISIG_SNAPSHOT_VERSION})`,
+      };
+    }
+    if (typeof snapshot.operationId !== 'string' || !snapshot.operationId) {
+      return { ok: false, error: 'snapshot.operationId must be a non-empty string' };
+    }
+    if (typeof snapshot.escrowId !== 'string' || !snapshot.escrowId) {
+      return { ok: false, error: 'snapshot.escrowId must be a non-empty string' };
+    }
+    if (typeof snapshot.unsignedXdr !== 'string' || !snapshot.unsignedXdr) {
+      return { ok: false, error: 'snapshot.unsignedXdr must be a non-empty string' };
+    }
+    if (typeof snapshot.networkPassphrase !== 'string' || !snapshot.networkPassphrase) {
+      return { ok: false, error: 'snapshot.networkPassphrase must be a non-empty string' };
+    }
+    if (!Array.isArray(snapshot.signers)) {
+      return { ok: false, error: 'snapshot.signers must be an array' };
+    }
+    if (!Array.isArray(snapshot.collectedSignatures)) {
+      return { ok: false, error: 'snapshot.collectedSignatures must be an array' };
+    }
+    if (typeof snapshot.threshold !== 'number' || snapshot.threshold < 1) {
+      return { ok: false, error: 'snapshot.threshold must be a number >= 1' };
+    }
+    const validStatuses: MultiSigOperationStatus[] = ['pending', 'ready', 'submitted', 'expired'];
+    if (!validStatuses.includes(snapshot.status)) {
+      return { ok: false, error: `snapshot.status must be one of: ${validStatuses.join(', ')}` };
+    }
+    return { ok: true };
+  }
 
   private _validateInitParams(params: InitMultiSigParams): InitMultiSigResult | { ok: true } {
     if (!params.escrowId) {
