@@ -130,6 +130,39 @@ console.log('Released! tx:', result.data?.txHash);
 
 See [examples/multisig-escrow.ts](./examples/multisig-escrow.ts) for the full walkthrough.
 
+### Juror Voting
+
+Cast a juror's vote on a dispute, either in the open or as ciphertext (e.g. for a commit-reveal
+scheme — the SDK does not perform the encryption itself, `ciphertext` must already be
+base64-encoded by the caller):
+
+```typescript
+import { JurorClient } from '@trustflow/sdk';
+
+const jurors = new JurorClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET',
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+});
+
+// Plaintext vote
+const result = await jurors.vote({
+  disputeId: 'dsp-1',
+  jurorAddress: 'GJUROR...',
+  vote: { encrypted: false, choice: 'approve' },
+});
+
+// Encrypted vote (commit-reveal style)
+const encryptedResult = await jurors.vote({
+  disputeId: 'dsp-1',
+  jurorAddress: 'GJUROR...',
+  vote: { encrypted: true, ciphertext: myCiphertext.toString('base64') },
+});
+
+if (result.ok) console.log('Voted! tx:', result.data.txHash);
+```
+
 ### Session Storage (Browser vs Node)
 
 `saveSession` / `loadSession` / `clearSession` detect their environment per call (via
@@ -199,6 +232,7 @@ responsibility until a native, backend-backed `MultiSigStateStore` lands — tra
 - **🚀 Transaction Pipeline**: Assemble, simulate, auto-adjust resource fees, fee-bump, and retry Soroban transactions via `TransactionPipeline`, with typed `PipelineResult<T>` errors
 - **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
+- **🗳️ Juror Voting**: Cast plaintext or encrypted votes on disputes via `JurorClient`
 - **🔁 Backend API Auto-Retries**: Resilient backend calls via `axios-retry` for transient failures
 - **🔑 Wallet Integration**: Built-in support for Freighter wallet
 - **📊 Event Monitoring**: Real-time escrow state change tracking
@@ -240,7 +274,7 @@ The SDK is under active development. Here's what's coming:
 - [ ] IPFS storage helpers for file uploads
 - [ ] Pagination support for high-volume queries
 - [ ] Event parsing utilities for XDR decoding
-- [ ] Juror voting system integration
+- [x] Juror voting system integration
 
 See our [GitHub Issues](https://github.com/trustflow-protocol/trustflow-sdk/issues) for detailed progress tracking.
 

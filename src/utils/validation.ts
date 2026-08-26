@@ -30,6 +30,14 @@ export function isValidEscrowId(value: string): boolean {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 128;
 }
 
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+export function isValidBase64(value: string): boolean {
+  return (
+    typeof value === 'string' && value.length > 0 && value.length % 4 === 0 && BASE64_RE.test(value)
+  );
+}
+
 export function isValidBlockCount(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= 1_000_000;
 }
