@@ -9,7 +9,7 @@ The TrustFlow SDK provides a developer-friendly interface for interacting with T
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start.
 
 ### Installation
 
