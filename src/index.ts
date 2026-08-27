@@ -5,6 +5,7 @@ export * from './types/multisig';
 export * from './types/juror';
 export * from './escrow';
 export * from './juror';
+export * from './storage';
 export * from './auth';
 export * from './stellar';
 export * from './utils/validation';

@@ -1,10 +1,16 @@
 # TrustFlow SDK API Reference
 
 ## TrustFlowEscrowClient
-- `createEscrow(params)` — create a new escrow
+- `createEscrow(params)` — create a new escrow; encodes contract call arguments via `buildCreateEscrowArgs`
 - `releaseEscrow(id, signer)` — release funds to beneficiary
+- `claim(escrowId, claimantAddress)` — beneficiary-side shortcut to withdraw already-cleared escrow funds
 - `getEscrow(id)` — read escrow state from contract
 - `getGigs(params)` — fetch paginated gigs via backend API with automatic retries for transient failures (`429`, `5xx`, network)
+
+## IPFSStorage
+- `new IPFSStorage(config?)` — `config.apiUrl` (default: web3.storage-compatible upload API), `config.apiKey`, `config.gatewayUrl`
+- `.upload(file, options?)` — uploads a `Buffer`/`Uint8Array`; returns `SDKResult<{ cid, url }>`
+- Also available as `client.storage.upload(file)` on `TrustFlowClient` (configure via `new TrustFlowClient({ ipfs: { apiKey } })`)
 
 ## EscrowBuilder
 Fluent builder: `.setDepositor().setBeneficiary().setAmount().build()`

@@ -2,6 +2,7 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { HORIZON_URLS, SOROBAN_RPC_URLS, DEFAULT_NETWORK, SDK_VERSION } from './constants';
 import { TrustFlowError } from './errors';
 import type { Network, ClientConfig } from './types';
+import { IPFSStorage } from './storage';
 
 /**
  * TrustFlowClient is the main entry point for interacting with the TrustFlow Protocol.
@@ -17,6 +18,8 @@ export class TrustFlowClient {
   readonly apiBaseUrl?: string;
   readonly apiKey?: string;
   readonly version: string = SDK_VERSION;
+  /** IPFS upload helper — `client.storage.upload(file)`. */
+  readonly storage: IPFSStorage;
 
   /**
    * Creates a new TrustFlow client instance.
@@ -27,6 +30,7 @@ export class TrustFlowClient {
    * @param config.rpcUrl - Optional custom Soroban RPC URL
    * @param config.apiBaseUrl - Optional TrustFlow API base URL for backend integration
    * @param config.apiKey - Optional API key for authenticated requests
+   * @param config.ipfs - Optional configuration for the built-in `storage.upload()` IPFS helper
    *
    * @example
    * ```typescript
@@ -37,6 +41,9 @@ export class TrustFlowClient {
    *   apiKey: process.env.API_KEY
    * });
    * await client.connect();
+   *
+   * const upload = await client.storage.upload(fileBuffer, { filename: 'contract.pdf' });
+   * if (upload.ok) console.log('Uploaded:', upload.data.url);
    * ```
    */
   constructor(config: ClientConfig) {
@@ -49,6 +56,7 @@ export class TrustFlowClient {
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
+    this.storage = new IPFSStorage(config.ipfs);
 
     this.server = new Horizon.Server(HORIZON_URLS[this.network]);
   }

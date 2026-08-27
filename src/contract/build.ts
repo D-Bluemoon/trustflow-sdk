@@ -15,6 +15,17 @@ export function buildReleaseArgs(escrowId: string, caller: string): unknown[] {
   return [nativeToScVal(escrowId, { type: 'string' }), new Address(caller).toScVal()];
 }
 
+/**
+ * Encodes a beneficiary's withdrawal of already-cleared escrow funds.
+ *
+ * Distinct from `buildReleaseArgs`: release is the depositor/authoriser moving
+ * funds to the beneficiary, while claim is the beneficiary pulling funds the
+ * contract has already cleared for withdrawal.
+ */
+export function buildClaimArgs(escrowId: string, claimant: string): unknown[] {
+  return [nativeToScVal(escrowId, { type: 'string' }), new Address(claimant).toScVal()];
+}
+
 export function buildDisputeArgs(escrowId: string, reason: string): unknown[] {
   return [nativeToScVal(escrowId, { type: 'string' }), nativeToScVal(reason, { type: 'string' })];
 }
