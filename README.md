@@ -282,6 +282,18 @@ Read more in [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ---
 
+## ⚛️ React Hooks
+
+React hooks for wallet, balance, and transaction state are available from the `@trustflow/sdk/react` subpath, kept separate from the main entrypoint so non-React (Node/CLI) consumers aren't forced to install `react`:
+
+```ts
+import { useWallet, useBalance, useTransaction } from '@trustflow/sdk/react';
+```
+
+`react` (`^18.0.0 || ^19.0.0`) is a peer dependency, required only if you import from `/react`. Note: `useEscrow` is not yet exported here — it's implemented against an API that doesn't currently exist on `TrustFlowClient` (tracked in [#81](https://github.com/trustflow-protocol/trustflow-sdk/issues/81)).
+
+---
+
 ## 📚 Documentation
 
 - **[Quick Start Guide](./docs/QUICKSTART.md)** — Get up and running in 5 minutes
