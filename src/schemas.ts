@@ -16,6 +16,7 @@
  * ```
  */
 import { z } from 'zod';
+import { TrustFlowError } from './errors';
 
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
@@ -83,3 +84,32 @@ export type ClientConfig = z.infer<typeof ClientConfigSchema>;
 export type StellarAddress = z.infer<typeof StellarAddressSchema>;
 export type ContractId = z.infer<typeof ContractIdSchema>;
 export type Network = z.infer<typeof NetworkSchema>;
+
+// ── RPC response validation (#72) ────────────────────────────────────────────
+//
+// Runtime-validates a decoded RPC/Horizon response against a Zod schema and
+// throws a typed `TrustFlowError` (code `VALIDATION_ERROR`) with the flattened
+// Zod issues attached as `cause` on failure, instead of letting a malformed
+// or unexpectedly-shaped response propagate as an untyped runtime error deep
+// inside contract-call code.
+//
+// Usage:
+// ```typescript
+// const raw = await rpc.getTransaction(hash);
+// const tx = parseRpcResponse(GetTransactionResponseSchema, raw, 'getTransaction');
+// ```
+export function parseRpcResponse<T extends z.ZodTypeAny>(
+  schema: T,
+  data: unknown,
+  context: string,
+): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new TrustFlowError(
+      `RPC response for "${context}" failed schema validation`,
+      'VALIDATION_ERROR',
+      result.error.flatten(),
+    );
+  }
+  return result.data;
+}
