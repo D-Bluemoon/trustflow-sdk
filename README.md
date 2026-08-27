@@ -163,6 +163,37 @@ const encryptedResult = await jurors.vote({
 if (result.ok) console.log('Voted! tx:', result.data.txHash);
 ```
 
+### Claiming Escrow Funds
+
+Once an escrow has cleared for release, the beneficiary can withdraw funds directly with
+`claim` — a shortcut that doesn't require a separate release step from the depositor:
+
+```typescript
+const result = await escrowClient.claim('esc-42', 'GBENEFICIARY...');
+if (result.ok) console.log('Claimed! tx:', result.data.txHash);
+```
+
+### IPFS Storage
+
+Every `TrustFlowClient` exposes a built-in `storage.upload()` helper for pinning files to
+IPFS (evidence attachments, gig deliverables, dispute exhibits, etc.):
+
+```typescript
+import { TrustFlowClient } from '@trustflow/sdk';
+
+const client = new TrustFlowClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  ipfs: { apiKey: process.env.IPFS_API_KEY },
+});
+
+const result = await client.storage.upload(fileBuffer, { filename: 'contract.pdf' });
+if (result.ok) console.log('Uploaded:', result.data.url);
+```
+
+`IPFSStorage` can also be used standalone via `new IPFSStorage(config)`, and points at a
+web3.storage-compatible raw-body upload API by default — pass `apiUrl` to target a different
+IPFS pinning service.
+
 ### Session Storage (Browser vs Node)
 
 `saveSession` / `loadSession` / `clearSession` detect their environment per call (via
@@ -233,6 +264,7 @@ responsibility until a native, backend-backed `MultiSigStateStore` lands — tra
 - **✍️ Multi-Sig Escrows**: M-of-N signature collection for shared backend Escrows via `MultiSigEscrowClient`
 - **⚖️ Dispute Resolution**: Raise and track disputes with on-chain governance
 - **🗳️ Juror Voting**: Cast plaintext or encrypted votes on disputes via `JurorClient`
+- **📦 IPFS Storage**: Upload files to IPFS via `client.storage.upload()` or standalone `IPFSStorage`
 - **🔁 Backend API Auto-Retries**: Resilient backend calls via `axios-retry` for transient failures
 - **🔑 Wallet Integration**: Built-in support for Freighter wallet
 - **📊 Event Monitoring**: Real-time escrow state change tracking
@@ -271,7 +303,7 @@ The SDK is under active development. Here's what's coming:
 
 ### Planned Features
 - [x] Multi-signature support for corporate escrows
-- [ ] IPFS storage helpers for file uploads
+- [x] IPFS storage helpers for file uploads
 - [ ] Pagination support for high-volume queries
 - [ ] Event parsing utilities for XDR decoding
 - [x] Juror voting system integration

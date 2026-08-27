@@ -1,14 +1,14 @@
 import { Keypair, xdr } from '@stellar/stellar-sdk';
-import { buildCreateEscrowArgs, buildReleaseArgs, buildDisputeArgs, buildVoteArgs } from '../src/contract/build';
+import {
+    buildCreateEscrowArgs,
+    buildReleaseArgs,
+    buildClaimArgs,
+    buildDisputeArgs,
+    buildVoteArgs,
+} from '../src/contract/build';
 
 const ADDR_A = Keypair.random().publicKey();
 const ADDR_B = Keypair.random().publicKey();
-
-function expectValidScValPayload(value: unknown): void {
-    const scVal = value as xdr.ScVal;
-    const encoded = scVal.toXDR();
-    expect(() => xdr.ScVal.fromXDR(encoded)).not.toThrow();
-}
 
 describe('contract argument XDR payloads', () => {
     it('buildCreateEscrowArgs returns XDR-decodable ScVal values', () => {
@@ -20,28 +20,35 @@ describe('contract argument XDR payloads', () => {
         });
 
         expect(args).toHaveLength(4);
-        args.forEach(expectValidScValPayload);
+        args.forEach((value) => expect(value).toBeValidScVal());
     });
 
     it('buildReleaseArgs returns XDR-decodable ScVal values', () => {
         const args = buildReleaseArgs('escrow-1', ADDR_A);
 
         expect(args).toHaveLength(2);
-        args.forEach(expectValidScValPayload);
+        args.forEach((value) => expect(value).toBeValidScVal());
+    });
+
+    it('buildClaimArgs returns XDR-decodable ScVal values', () => {
+        const args = buildClaimArgs('escrow-1', ADDR_A);
+
+        expect(args).toHaveLength(2);
+        args.forEach((value) => expect(value).toBeValidScVal());
     });
 
     it('buildDisputeArgs returns XDR-decodable ScVal values', () => {
         const args = buildDisputeArgs('escrow-1', 'work quality dispute');
 
         expect(args).toHaveLength(2);
-        args.forEach(expectValidScValPayload);
+        args.forEach((value) => expect(value).toBeValidScVal());
     });
 
     it('buildVoteArgs returns XDR-decodable ScVal values for a plaintext vote', () => {
         const args = buildVoteArgs('dispute-1', ADDR_A, { encrypted: false, choice: 'approve' });
 
         expect(args).toHaveLength(4);
-        args.forEach(expectValidScValPayload);
+        args.forEach((value) => expect(value).toBeValidScVal());
     });
 
     it('buildVoteArgs returns XDR-decodable ScVal values for an encrypted vote', () => {
@@ -51,7 +58,7 @@ describe('contract argument XDR payloads', () => {
         });
 
         expect(args).toHaveLength(4);
-        args.forEach(expectValidScValPayload);
+        args.forEach((value) => expect(value).toBeValidScVal());
     });
 
     it('buildVoteArgs encodes the encrypted flag distinctly from the vote payload', () => {

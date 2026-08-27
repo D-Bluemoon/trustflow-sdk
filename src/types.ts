@@ -1,3 +1,5 @@
+import type { IPFSConfig } from './storage';
+
 export type Network = 'TESTNET' | 'MAINNET';
 
 export interface ClientConfig {
@@ -6,6 +8,8 @@ export interface ClientConfig {
   rpcUrl?: string;
   apiBaseUrl?: string;
   apiKey?: string;
+  /** Optional configuration for the built-in `storage.upload()` IPFS helper. */
+  ipfs?: IPFSConfig;
 }
 
 export enum EscrowStatus {
