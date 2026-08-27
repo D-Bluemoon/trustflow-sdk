@@ -1,4 +1,11 @@
 export * from './types';
+// `./types` resolves to the sibling `types.ts` file (Node/TS module
+// resolution prefers an exact file match over a same-named directory), so
+// `types/index.ts` was never actually reachable through the package root —
+// its `EscrowState`/`EscrowParams`/`EscrowId` types silently shadowed by
+// nothing, just unexported. Explicit path re-exports both without collision
+// since none of its names overlap with the flat `Escrow` in types.ts (#80).
+export * from './types/index';
 export * from './types/contract';
 export * from './types/events';
 export * from './types/multisig';
