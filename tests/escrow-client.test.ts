@@ -77,6 +77,53 @@ describe('TrustFlowEscrowClient.createEscrow', () => {
   });
 });
 
+describe('TrustFlowEscrowClient.fund', () => {
+  it('funds an escrow for a valid amount and no token address', async () => {
+    const client = new TrustFlowEscrowClient(CONFIG);
+    const result = await client.fund('esc-1', DEPOSITOR, 50_000_000n);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.txHash).toMatch(/^fund-esc-1-/);
+    }
+  });
+
+  it('funds an escrow with a specific token address (e.g. USDC contract)', async () => {
+    const client = new TrustFlowEscrowClient(CONFIG);
+    const usdcContract = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
+    const result = await client.fund('esc-1', DEPOSITOR, 50_000_000n, usdcContract);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a missing escrowId', async () => {
+    const client = new TrustFlowEscrowClient(CONFIG);
+    const result = await client.fund('', DEPOSITOR, 50_000_000n);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/escrowId/);
+    }
+  });
+
+  it('rejects an invalid funder address', async () => {
+    const client = new TrustFlowEscrowClient(CONFIG);
+    await expect(client.fund('esc-1', 'not-a-stellar-address', 50_000_000n)).rejects.toThrow(
+      /funderAddress/,
+    );
+  });
+
+  it('rejects a non-positive amount', async () => {
+    const client = new TrustFlowEscrowClient(CONFIG);
+    const result = await client.fund('esc-1', DEPOSITOR, 0n);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/positive/);
+    }
+  });
+});
+
 describe('TrustFlowEscrowClient.claim', () => {
   it('claims funds for a valid escrowId and claimant address', async () => {
     const client = new TrustFlowEscrowClient(CONFIG);
@@ -100,8 +147,6 @@ describe('TrustFlowEscrowClient.claim', () => {
 
   it('rejects an invalid claimant address', async () => {
     const client = new TrustFlowEscrowClient(CONFIG);
-    await expect(client.claim('esc-1', 'not-a-stellar-address')).rejects.toThrow(
-      /claimantAddress/,
-    );
+    await expect(client.claim('esc-1', 'not-a-stellar-address')).rejects.toThrow(/claimantAddress/);
   });
 });
