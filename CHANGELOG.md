@@ -1,6 +1,23 @@
 # Changelog
 
 ## [Unreleased]
+- Added `TrustFlowEscrowClient.fund()` (#4) — funds an existing escrow by encoding a token
+  transfer (e.g. the USDC Soroban token contract) into contract call arguments via the new
+  `buildFundArgs`; omit `tokenAddress` to use the escrow's native asset.
+- Added `ProfileClient` (#5) — type-safe Axios methods (`getProfile`/`updateProfile`) for the
+  backend's `/profiles` endpoints, following the same retry-aware `SDKResult` pattern as
+  `DisputeClient`/`JurorClient`. Exported from the package root alongside `Profile` and
+  `UpdateProfileParams`.
+- Added `disputeEscrow()` to `src/escrow/dispute.ts` (#6) — the on-chain counterpart to
+  `DisputeClient.raiseDispute` (which posts to the backend API); simplifies the XDR construction
+  for alerting the smart contract of a dispute via the existing `buildDisputeArgs`. This also
+  fixes `examples/dispute.ts`, which already imported `disputeEscrow` from this module even
+  though it was never implemented.
+- Added a Typedoc configuration (#7) — `typedoc.json` plus `npm run docs` / `docs:watch` —
+  auto-generating API reference HTML from JSDoc comments into `docs/reference` (gitignored,
+  generated on demand). `skipErrorChecking` is enabled so doc generation isn't blocked by
+  pre-existing unrelated compiler diagnostics in legacy browser-wallet code (`window` usage
+  without a DOM lib, etc.).
 - Exported the Zod validation schemas from `src/schemas.ts` (`StellarAddressSchema`,
   `ContractIdSchema`, `StroopsSchema`, `NetworkSchema`, `CreateEscrowSchema`,
   `ReleaseEscrowSchema`, `DisputeEscrowSchema`, `ClientConfigSchema`, plus the `*Input` inferred

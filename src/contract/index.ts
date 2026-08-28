@@ -5,6 +5,7 @@ export {
   buildCreateEscrowArgs,
   buildReleaseArgs,
   buildClaimArgs,
+  buildFundArgs,
   buildDisputeArgs,
   buildVoteArgs,
 } from './build';

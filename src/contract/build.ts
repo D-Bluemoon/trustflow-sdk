@@ -26,6 +26,32 @@ export function buildClaimArgs(escrowId: string, claimant: string): unknown[] {
   return [nativeToScVal(escrowId, { type: 'string' }), new Address(claimant).toScVal()];
 }
 
+/**
+ * Encodes a funding call that transfers an asset (e.g. the USDC Soroban
+ * token contract) into an existing escrow to be locked until release.
+ *
+ * Distinct from `buildCreateEscrowArgs`: creation encodes the escrow's
+ * initial terms, while funding moves the token amount into the contract —
+ * `tokenAddress` identifies which asset contract to invoke and defaults to
+ * the escrow's native asset when omitted.
+ */
+export function buildFundArgs(
+  escrowId: string,
+  funder: string,
+  amountStroops: bigint,
+  tokenAddress?: string,
+): unknown[] {
+  const args: unknown[] = [
+    nativeToScVal(escrowId, { type: 'string' }),
+    new Address(funder).toScVal(),
+    nativeToScVal(amountStroops, { type: 'i128' }),
+  ];
+  if (tokenAddress) {
+    args.push(new Address(tokenAddress).toScVal());
+  }
+  return args;
+}
+
 export function buildDisputeArgs(escrowId: string, reason: string): unknown[] {
   return [nativeToScVal(escrowId, { type: 'string' }), nativeToScVal(reason, { type: 'string' })];
 }

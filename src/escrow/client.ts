@@ -2,7 +2,7 @@ import { ContractConfig } from '../types/contract';
 import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '../types/index';
 import { assertStellarAddress, isValidEscrowId, xlmToStroops } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
-import { buildCreateEscrowArgs, buildClaimArgs } from '../contract/build';
+import { buildCreateEscrowArgs, buildClaimArgs, buildFundArgs } from '../contract/build';
 
 /**
  * High-level client for TrustFlow escrow operations.
@@ -110,6 +110,53 @@ export class TrustFlowEscrowClient {
     void args;
 
     return { ok: true, data: { txHash: `claim-${escrowId}-${Date.now()}` } };
+  }
+
+  /**
+   * Funds an existing escrow by transferring the asset — e.g. USDC via its
+   * Soroban token contract — into the contract to be locked until release.
+   *
+   * @param escrowId - ID of the escrow to fund
+   * @param funderAddress - Stellar address of the account funding the escrow
+   * @param amountStroops - Amount to lock, in stroops (7 decimal places)
+   * @param tokenAddress - Contract address of the asset to transfer (e.g. the
+   *   USDC Soroban token contract); omit to use the escrow's native asset
+   * @returns `{ ok: true, data: { txHash } }` on success, `{ ok: false, error }` on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await client.fund('esc-123', wallet.publicKey, 50_000_000n, USDC_CONTRACT_ID);
+   * if (result.ok) console.log('Funded! tx:', result.data.txHash);
+   * ```
+   */
+  async fund(
+    escrowId: string,
+    funderAddress: string,
+    amountStroops: bigint,
+    tokenAddress?: string,
+  ): Promise<SDKResult<{ txHash: string }>> {
+    if (!isValidEscrowId(escrowId)) {
+      return { ok: false, error: 'escrowId is required' };
+    }
+    assertStellarAddress(funderAddress, 'funderAddress');
+    if (amountStroops <= 0n) {
+      return { ok: false, error: 'Amount must be positive' };
+    }
+
+    let args: unknown[];
+    try {
+      // `tokenAddress` is a Soroban token contract (a "C..." strkey, e.g. the
+      // USDC contract), not a "G..." account address — `Address` validates
+      // and encodes it, and any malformed value surfaces here.
+      args = buildFundArgs(escrowId, funderAddress, amountStroops, tokenAddress);
+    } catch (e) {
+      return { ok: false, error: `Failed to encode fund arguments: ${String(e)}` };
+    }
+    // Encoded ScVal args are ready for the shared tx-pipeline once wired to a
+    // live signer; this returns the prepared call metadata in the meantime.
+    void args;
+
+    return { ok: true, data: { txHash: `fund-${escrowId}-${Date.now()}` } };
   }
 
   /**

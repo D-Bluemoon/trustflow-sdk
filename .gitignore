@@ -5,6 +5,7 @@ dist/
 coverage/
 *.js.map
 *.tsbuildinfo
+docs/reference/
 
 # IDE
 dist

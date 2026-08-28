@@ -3,6 +3,7 @@ import {
     buildCreateEscrowArgs,
     buildReleaseArgs,
     buildClaimArgs,
+    buildFundArgs,
     buildDisputeArgs,
     buildVoteArgs,
 } from '../src/contract/build';
@@ -34,6 +35,20 @@ describe('contract argument XDR payloads', () => {
         const args = buildClaimArgs('escrow-1', ADDR_A);
 
         expect(args).toHaveLength(2);
+        args.forEach((value) => expect(value).toBeValidScVal());
+    });
+
+    it('buildFundArgs returns XDR-decodable ScVal values without a token address', () => {
+        const args = buildFundArgs('escrow-1', ADDR_A, 50_000_000n);
+
+        expect(args).toHaveLength(3);
+        args.forEach((value) => expect(value).toBeValidScVal());
+    });
+
+    it('buildFundArgs includes the token address when provided', () => {
+        const args = buildFundArgs('escrow-1', ADDR_A, 50_000_000n, ADDR_B);
+
+        expect(args).toHaveLength(4);
         args.forEach((value) => expect(value).toBeValidScVal());
     });
 

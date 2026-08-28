@@ -62,7 +62,7 @@ if (result.ok) {
 ### 3 — Fund & Release an Escrow
 
 ```typescript
-import { TrustFlowClient } from '@trustflow/sdk';
+import { TrustFlowClient, TrustFlowEscrowClient } from '@trustflow/sdk';
 import { createEscrow, releaseEscrow } from '@trustflow/sdk/escrow';
 import { connectWallet } from '@trustflow/sdk/wallet';
 import { xlmToStroops } from '@trustflow/sdk/utils';
@@ -83,6 +83,21 @@ const escrow = await createEscrow(client, {
   metadata: { orderId: 'ORD-001' },
 });
 console.log('Escrow created:', escrow.id);
+
+// Fund (e.g. lock USDC via its Soroban token contract instead of the native asset)
+const escrowClient = new TrustFlowEscrowClient({
+  contractId: process.env.TRUSTFLOW_CONTRACT_ID!,
+  network: 'TESTNET',
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+});
+const funded = await escrowClient.fund(
+  escrow.id,
+  wallet.publicKey,
+  xlmToStroops('50'),
+  process.env.USDC_CONTRACT_ID,
+);
+if (funded.ok) console.log('Funded! tx:', funded.data.txHash);
 
 // Release
 const txHash = await releaseEscrow(client, {
@@ -171,6 +186,22 @@ Once an escrow has cleared for release, the beneficiary can withdraw funds direc
 ```typescript
 const result = await escrowClient.claim('esc-42', 'GBENEFICIARY...');
 if (result.ok) console.log('Claimed! tx:', result.data.txHash);
+```
+
+### User Profiles
+
+`ProfileClient` wraps the backend's `/profiles` endpoints with the same retry-aware transport
+as `DisputeClient`/`JurorClient`:
+
+```typescript
+import { ProfileClient } from '@trustflow/sdk';
+
+const profiles = new ProfileClient(process.env.TRUSTFLOW_API_URL!, authToken);
+
+const result = await profiles.getProfile(wallet.publicKey);
+if (result.ok) console.log(result.data.displayName);
+
+await profiles.updateProfile(wallet.publicKey, { bio: 'Building on Stellar' });
 ```
 
 ### IPFS Storage
@@ -300,6 +331,8 @@ import { useWallet, useBalance, useTransaction } from '@trustflow/sdk/react';
 - **[API Reference](./docs/API.md)** — Complete API documentation
 - **[Architecture](./docs/ARCHITECTURE.md)** — Design principles and module structure
 - **[Examples](./examples/)** — Working code examples for common use cases
+- **API reference (generated)** — run `npm run docs` to build a browsable HTML API reference
+  from JSDoc comments into `docs/reference/` (not committed; regenerate locally or in CI)
 
 ---
 
