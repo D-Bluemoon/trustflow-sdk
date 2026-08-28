@@ -2,10 +2,24 @@
 
 ## TrustFlowEscrowClient
 - `createEscrow(params)` — create a new escrow; encodes contract call arguments via `buildCreateEscrowArgs`
+- `fund(escrowId, funderAddress, amountStroops, tokenAddress?)` — transfer an asset (e.g. USDC via
+  its Soroban token contract) into an existing escrow to be locked until release; encodes contract
+  call arguments via `buildFundArgs`. Omit `tokenAddress` to use the escrow's native asset.
 - `releaseEscrow(id, signer)` — release funds to beneficiary
 - `claim(escrowId, claimantAddress)` — beneficiary-side shortcut to withdraw already-cleared escrow funds
 - `getEscrow(id)` — read escrow state from contract
 - `getGigs(params)` — fetch paginated gigs via backend API with automatic retries for transient failures (`429`, `5xx`, network)
+
+## disputeEscrow (`src/escrow/dispute.ts`)
+- `disputeEscrow(client, { escrowId, caller, reason })` — raises a dispute directly against the
+  TrustFlow contract; encodes contract call arguments via `buildDisputeArgs`. Distinct from
+  `DisputeClient.raiseDispute` below, which records the dispute with the backend API instead of
+  the on-chain contract.
+
+## ProfileClient
+- `new ProfileClient(apiUrl, token, options?)`
+- `.getProfile(address)` — fetch a user's profile (automatic retry on transient backend failures)
+- `.updateProfile(address, params)` — update a user's profile (automatic retry on transient backend failures)
 
 ## IPFSStorage
 - `new IPFSStorage(config?)` — `config.apiUrl` (default: web3.storage-compatible upload API), `config.apiKey`, `config.gatewayUrl`
