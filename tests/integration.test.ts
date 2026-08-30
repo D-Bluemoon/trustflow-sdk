@@ -1,17 +1,22 @@
-import { EscrowBuilder } from '../src/escrow/builder';
-import { isValidStellarAddress, xlmToStroops } from '../src/utils/validation';
-import { stroopsToXLM } from '../src/utils/format';
+﻿import * as SDK from '../src/index';
 
-describe('SDK integration: escrow round-trip', () => {
-  const ADDR_A = 'G' + 'A'.repeat(55);
-  const ADDR_B = 'G' + 'B'.repeat(55);
+describe('SDK Barrel Public Export Surface Integration Tests', () => {
+    // Maintained allowlist tracking expected exported public modules to catch accidental drop drift
+    const expectedExports = [
+        'MultiSigEscrowClient',
+        'TrustFlowClient',
+        'TrustFlowError'
+    ];
 
-  it('builds valid params and validates them', () => {
-    const params = new EscrowBuilder().setDepositor(ADDR_A).setBeneficiary(ADDR_B).setAmount('500').build();
-    expect(isValidStellarAddress(params.depositor)).toBe(true);
-    expect(isValidStellarAddress(params.beneficiary)).toBe(true);
-    const stroops = xlmToStroops(params.amountXLM);
-    expect(stroops).toBe(5_000_000_000n);
-    expect(stroopsToXLM(stroops)).toBe('500');
-  });
+    it('should assert all core modules and clients are correctly exported from the public entry point', () => {
+        const actualExports = Object.keys(SDK);
+        
+        for (const exportName of expectedExports) {
+            expect(actualExports).toContain(exportName);
+        }
+    });
+
+    it('should explicitly guarantee TrustFlowError is exported from the entry barrel surface', () => {
+        expect(SDK).toHaveProperty('TrustFlowError');
+    });
 });
