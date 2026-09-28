@@ -1,6 +1,7 @@
 import type { SDKResult } from '../types/index';
 import type { AxiosInstance } from 'axios';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import type { ApiRetryConfig } from '../utils/http';
 import type { HttpInterceptors } from '../utils/interceptors';
 
 /** Default upload endpoint — a raw-body IPFS upload API (e.g. web3.storage-compatible). */
@@ -17,6 +18,17 @@ export interface IPFSConfig {
   gatewayUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30s. */
   timeoutMs?: number;
+  /**
+   * Retry budget for upload requests. Defaults to 3 retries with a 250ms base
+   * delay and a 2s cap.
+   *
+   * `upload` is a `POST`, so a `429`/`5xx` or transport error is **not** retried
+   * by default: the upload service may have stored the file before the response
+   * was lost, and a replay would create a second, unreachable object. Set
+   * `{ trustflowRetry: true }` on the call when the service de-duplicates by
+   * content and replaying is safe.
+   */
+  retry?: ApiRetryConfig;
   /** Request/response interceptor hooks applied to upload calls. */
   interceptors?: HttpInterceptors;
 }
@@ -59,12 +71,19 @@ export class IPFSStorage {
       baseURL: config.apiUrl ?? DEFAULT_IPFS_API_URL,
       apiKey: config.apiKey,
       timeoutMs: config.timeoutMs,
+      retry: config.retry,
       interceptors: config.interceptors,
     });
   }
 
   /**
    * Uploads a file to IPFS.
+   *
+   * **Retry behaviour:** a `POST`, so `429`/`5xx` and transport errors are
+   * surfaced rather than replayed — a retried upload may leave an orphaned
+   * object and burn quota twice. Configure `IPFSConfig.retry` to tune the
+   * budget, and set `{ trustflowRetry: true }` on the call when your upload
+   * service de-duplicates by content hash.
    *
    * @param file - File contents as a `Buffer`, `Uint8Array`, `ArrayBuffer`, `Blob` or `File`.
    *   For a `File`, its `name` is used as the default `filename`; for a `Blob` or `File`, its
@@ -77,7 +96,9 @@ export class IPFSStorage {
     options: IPFSUploadOptions = {},
   ): Promise<SDKResult<IPFSUploadResult>> {
     const isBlob = typeof Blob !== 'undefined' && file instanceof Blob;
-    const size = isBlob ? (file as Blob).size : (file as Buffer | Uint8Array | ArrayBuffer)?.byteLength;
+    const size = isBlob
+      ? (file as Blob).size
+      : (file as Buffer | Uint8Array | ArrayBuffer)?.byteLength;
     if (!file || !size) {
       return {
         ok: false,

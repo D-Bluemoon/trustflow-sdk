@@ -1,4 +1,7 @@
 import { TrustFlowError } from '../errors';
+import { withTransientRetry } from '../utils/node-retry';
+import { markTransient } from '../utils/transient';
+import type { ApiRetryConfig } from '../utils/http';
 
 export interface PreparedTx {
   xdr: string;
@@ -58,18 +61,72 @@ function normaliseHorizonUrl(horizonUrl: string): string {
 /**
  * Submits a signed transaction XDR to Horizon. Every failure is thrown as a
  * `TrustFlowError`; Horizon rejections carry a {@link HorizonSubmissionErrorDetail} as `cause`.
+ *
+ * ### Retry behaviour
+ *
+ * This is a `POST`, so it is **not** retried on a `4xx` or a Horizon response
+ * body that carries result codes: Horizon reached a verdict, and replaying the
+ * same envelope would only produce the same verdict (Horizon rejects a
+ * transaction that is already on the ledger as `tx_bad_seq`).
+ *
+ * What *is* retried is the genuinely ambiguous case — a transport error, a
+ * timeout, a `429`, or a `5xx` raised by an edge proxy before Horizon processed
+ * the envelope at all. Those are wrapped in `markTransient` so the shared
+ * classifier retries them, while a processed-and-rejected submission fails on
+ * the first attempt. The envelope is byte-identical on every replay, so a
+ * retry cannot double-spend even if the first attempt did land.
+ *
+ * @param xdr - Base64 signed transaction envelope
+ * @param horizonUrl - Horizon base URL (with or without a trailing slash)
+ * @param retry - Optional retry budget; defaults to
+ *   {@link import('../utils/node-retry').DEFAULT_NODE_RETRY_CONFIG}
+ * @throws {TrustFlowError} `SUBMISSION_ERROR` for a Horizon rejection, or
+ *   `CONNECTION_ERROR` when the request never completed
  */
-export async function submitTransaction(xdr: string, horizonUrl: string): Promise<SubmittedTx> {
+export async function submitTransaction(
+  xdr: string,
+  horizonUrl: string,
+  retry?: ApiRetryConfig,
+): Promise<SubmittedTx> {
   const baseUrl = normaliseHorizonUrl(horizonUrl);
 
   let res: Response;
   try {
-    res = await fetch(`${baseUrl}/transactions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `tx=${encodeURIComponent(xdr)}`,
-    });
+    res = await withTransientRetry(
+      async () => {
+        let response: Response;
+        try {
+          response = await fetch(`${baseUrl}/transactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `tx=${encodeURIComponent(xdr)}`,
+          });
+        } catch (e) {
+          throw markTransient(TrustFlowError.wrap(e, 'CONNECTION_ERROR'));
+        }
+        // A 429/408/5xx means the request never reached a Horizon verdict —
+        // an edge proxy or Horizon's own front end failed first — so it is safe
+        // to replay. Any other status carries a real verdict and is returned
+        // for the caller to interpret.
+        if (response.status === 429 || response.status === 408 || response.status >= 500) {
+          throw markTransient(
+            new TrustFlowError(
+              `Horizon submission failed before reaching the ledger (HTTP ${response.status})`,
+              'CONNECTION_ERROR',
+              { status: response.status, 'retry-after': response.headers.get('retry-after') },
+            ),
+          );
+        }
+        return response;
+      },
+      undefined,
+      retry,
+      'horizon.submitTransaction',
+    );
   } catch (e) {
+    // `withTransientRetry` rethrows the last transport failure once the budget
+    // is spent; wrap it so callers still see a typed SDK error.
+    if (e instanceof TrustFlowError) throw e;
     throw TrustFlowError.wrap(e, 'CONNECTION_ERROR');
   }
 

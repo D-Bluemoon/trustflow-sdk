@@ -11,3 +11,6 @@ fix.md
 
 # IDE
 dist
+
+# Bundler example build output
+examples/bundlers/*/dist/

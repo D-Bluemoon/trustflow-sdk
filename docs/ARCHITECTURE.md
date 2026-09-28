@@ -9,6 +9,10 @@ The SDK is organized around five conceptual layers: client setup, type definitio
 ```
 src/
 ├── client.ts              # TrustFlowClient: main entry point, network config, RPC/Horizon servers
+├── accounts/              # Multi-account: AccountManager + AccountContext (identity & per-account state)
+│   ├── manager.ts         # Register / switch / remove, per-account data, export & import state
+│   ├── types.ts           # AccountContext, AccountOptions, AddAccountInput, change events
+│   └── index.ts           # Exports
 ├── errors.ts              # TrustFlowError (24+ error codes) and factory methods
 ├── types.ts               # Top-level types: ClientConfig, Network, Escrow, EscrowStatus
 ├── types/                 # Escrow domain types: EscrowParams, EscrowState, SDKResult<T>
@@ -71,10 +75,18 @@ src/
 │   ├── validation.ts      # Stellar address, contract ID, amount validation
 │   ├── format.ts          # xlmToStroops, stroopsToXlm
 │   ├── i128.ts            # BigInt serialization helpers
-│   ├── retry.ts           # Retry logic with exponential backoff
-│   ├── http.ts            # Axios HTTP client with axios-retry
+│   ├── retry.ts           # Generic retry helper (backoff, shouldRetry, jitter)
+│   ├── transient.ts       # Shared "is this failure worth retrying?" classifier
+│   ├── node-retry.ts      # withTransientRetry: the one Horizon/RPC/fetch primitive
+│   ├── http.ts            # Axios client + idempotent retry interceptor
+│   ├── environment.ts     # WebCrypto / feature detection (no polyfills installed)
+│   ├── connection-pool.ts# Agent-agnostic pooling config + observability
 │   ├── cache.ts           # SimpleCache (used for balance caching)
 │   ├── logger.ts          # SDKLogger (side effect: console output)
+│   └── index.ts           # Exports
+│
+├── node/                  # Node-only entry: @trustflow/sdk/node
+│   ├── agents.ts          # The ONLY node:http / node:https imports in the package
 │   └── index.ts           # Exports
 │
 ├── hooks/                 # React hooks (optional peer dependency)
@@ -207,17 +219,25 @@ User → pipeline.run(sourceAccount, ops, signers)
 
 ## Entry Points & Distribution
 
-The SDK publishes five entry points via `tsup`, built from distinct source files:
+The SDK publishes six entry points via `tsup`, built from distinct source files:
 
 | Export | Source | Contents | Use Case |
 |--------|--------|----------|----------|
-| `@trustflow/sdk` | `src/index.ts` | Everything: clients, functions, types, utilities | General use, backend |
+| `@trustflow/sdk` | `src/index.ts` | Everything below, plus the client, accounts and all sub-clients | General use, backend |
 | `@trustflow/sdk/escrow` | `src/escrow/index.ts` | Escrow operations only | Escrow-specific modules |
 | `@trustflow/sdk/wallet` | `src/wallet/index.ts` | Wallet adapters & connection | Frontend wallet logic |
-| `@trustflow/sdk/utils` | `src/utils/index.ts` | Validation, formatting, retry | Shared utilities |
+| `@trustflow/sdk/utils` | `src/utils/index.ts` | Validation, formatting, retry, feature detection | Shared utilities |
 | `@trustflow/sdk/react` | `src/hooks/index.ts` | React hooks (requires react peer dep) | React applications |
+| `@trustflow/sdk/node` | `src/node/index.ts` | **Node only** — `http`/`https` keep-alive agent factories | Long-running Node servers |
 
 Each entry point shares common classes (TrustFlowError, logger) via `tsup`'s chunk splitting to avoid duplication.
+
+Only the first five are browser-safe. `src/node/` is the sole module graph that references
+`node:http` / `node:https`, and those specifiers are declared `external` in `tsup.config.ts` so
+the neutral build never tries to bundle them. Everything reachable from the other five entries is
+asserted to be free of Node built-ins by `tests/bundler-compat.test.ts`, and proven end-to-end on
+Webpack 5, Rollup and esbuild by `npm run test:bundlers`. See
+`docs/BROWSER_COMPATIBILITY.md`.
 
 ## Design Principles
 
@@ -227,4 +247,7 @@ Each entry point shares common classes (TrustFlowError, logger) via `tsup`'s chu
 4. **Type safety** — All public APIs use TypeScript strict mode; Zod schemas validate runtime inputs
 5. **Side effects isolated** — Retry logic, logging, caching are opt-in or explicit; contract arguments are pure functions
 6. **Network agnostic** — Accept `Network` type (string union 'TESTNET' | 'MAINNET', not an enum), support custom RPC URLs
-7. **Builder pattern for complex params** — `EscrowBuilder` provides fluent construction; `build()` returns an independent snapshot, so a builder can be reused as a template and earlier results are never mutated by later `set*` calls
+7. **One client, many accounts** — `AccountManager` holds every account a client can act as. `useAccount(id)` is a field write, not a re-initialisation, and per-account state (session, balance cache, API key, caller data) is namespaced by account id, so a switch can never leak one account's credentials into another's request
+8. **One retry policy** — `classifyFailure` is the single retry classifier and `withTransientRetry` the single retry primitive behind every Horizon, Soroban RPC and raw-`fetch` call. Transient failures are retried with capped, jittered backoff; deterministic ones are not retried, and a non-idempotent request is not replayed unless the call opts in
+9. **Detect, never polyfill** — `utils/environment.ts` reports missing web-platform capabilities and raises a named `UNSUPPORTED_ENVIRONMENT` error instead of installing a polyfill or degrading silently
+10. **Builder pattern for complex params** — `EscrowBuilder` provides fluent construction; `build()` returns an independent snapshot, so a builder can be reused as a template and earlier results are never mutated by later `set*` calls

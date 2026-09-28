@@ -1,4 +1,5 @@
 export { TrustFlowEscrowClient } from './client';
+export type { GetGigsOptions, TrustFlowEscrowClientOptions } from './client';
 export { EscrowBuilder } from './builder';
 export { EscrowMonitor } from './monitor';
 export type {

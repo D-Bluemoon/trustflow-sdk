@@ -32,6 +32,11 @@
       "types": "./dist/utils/index.d.ts",
       "import": "./dist/utils/index.mjs",
       "require": "./dist/utils/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.mjs",
+      "require": "./dist/node/index.js"
     }
   },
   "files": [
@@ -80,13 +85,14 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test:bundlers": "node examples/bundlers/verify-bundlers.mjs",
+    "examples:multi-account": "esbuild examples/multi-account.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/trustflow-multi-account.cjs --log-level=error && node node_modules/.cache/trustflow-multi-account.cjs"
   },
   "license": "MIT",
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",
     "axios": "^1.18.1",
-    "axios-retry": "^4.5.0",
     "zod": "^3.22.0"
   },
   "peerDependencies": {
@@ -99,6 +105,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@rollup/plugin-commonjs": "^28.0.9",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.3.0",
     "@types/jest": "^30.0.0",
@@ -107,6 +115,8 @@
     "@types/react-dom": "^18.2.0",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
     "@typescript-eslint/parser": "^8.61.1",
+    "esbuild": "^0.25.0",
+    "esbuild-loader": "^4.3.0",
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
@@ -116,9 +126,12 @@
     "prettier": "^3.8.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "rollup": "^4.30.0",
     "ts-jest": "^29.4.11",
     "tsup": "^8.5.1",
     "typedoc": "^0.28.20",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "webpack": "^5.97.0",
+    "webpack-cli": "^5.1.4"
   }
 }

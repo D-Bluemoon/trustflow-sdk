@@ -13,6 +13,18 @@ import { logger } from './utils/logger';
 import { TrustFlowError } from './errors';
 import type { Network, ClientConfig } from './types';
 import { IPFSStorage } from './storage';
+import { SimpleCache } from './utils/cache';
+import { AccountManager } from './accounts/manager';
+import type { AccountContext, AccountOptions, AddAccountInput } from './accounts/types';
+import { fetchAccountInfo, type AccountInfo } from './stellar/account';
+import { withTransientRetry } from './utils/node-retry';
+import {
+  assertWebCryptoSupport,
+  detectFeatures,
+  type EnvironmentReport,
+} from './utils/environment';
+import { clearSession, loadSession, saveSession, type Session } from './auth/session';
+import type { ApiRetryConfig } from './utils/http';
 
 /** Default TTL for opt-in Horizon balance caching. */
 export const DEFAULT_BALANCE_CACHE_TTL_MS = 5_000;
@@ -21,13 +33,50 @@ export const DEFAULT_BALANCE_CACHE_TTL_MS = 5_000;
 export interface GetBalanceOptions {
   /** Fetch from Horizon even when a non-expired cached balance is available. */
   skipCache?: boolean;
+  /** Account id or `G...` address whose cache entry to read/write. Defaults to the active account. */
+  account?: string;
 }
 import { createContractBinding, SorobanContractClient } from './contract';
 
+/** Pre-populates {@link TrustFlowClient.accounts} from the constructor config. */
+export interface MultiAccountConfig {
+  /** Accounts to register up front. The first becomes active. */
+  accounts: AddAccountInput[];
+}
 
 /**
  * TrustFlowClient is the main entry point for interacting with the TrustFlow Protocol.
  * It handles network configuration, RPC connections, and provides access to escrow operations.
+ *
+ * ## Multiple accounts
+ *
+ * One client can act as many accounts. Register them on
+ * {@link TrustFlowClient.accounts} and switch with
+ * {@link TrustFlowClient.useAccount} — a field write, not a re-initialisation:
+ * the Horizon server, the Soroban RPC server, the retry budget and the IPFS
+ * helper are all shared and stay warm.
+ *
+ * Every account-scoped method takes an optional `account`, so a single call
+ * can target an account other than the active one. Per-account state (session
+ * token, balance cache entry, `data` bag) is namespaced by account id, so
+ * switching can never leak one account's session or credentials into another's
+ * request.
+ *
+ * With no accounts registered the client behaves exactly as it always has —
+ * single account, no context, no extra errors — so existing integrations need
+ * no changes.
+ *
+ * @example
+ * ```typescript
+ * const client = new TrustFlowClient({ contractId, accounts: [
+ *   { address: alice, label: 'Alice', roles: ['depositor'] },
+ *   { address: bob,   label: 'Bob',   roles: ['beneficiary'] },
+ * ] });
+ *
+ * client.useAccount(bob);                  // switch — no reconnect
+ * await client.getAccountInfo();           // Bob's balance/sequence
+ * await client.getAccountInfo({ account: alice });  // Alice, active unchanged
+ * ```
  */
 export class TrustFlowClient {
   private server: Horizon.Server;
@@ -45,6 +94,13 @@ export class TrustFlowClient {
   readonly apiVersion: string;
   /** IPFS upload helper — `client.storage.upload(file)`. */
   readonly storage: IPFSStorage;
+  /** Every account this client can act as. See {@link TrustFlowClient.useAccount}. */
+  readonly accounts: AccountManager;
+  /**
+   * Retry budget applied to every Horizon / Soroban RPC call. Reused as-is for
+   * the backend and IPFS HTTP helpers, so one block configures the whole client.
+   */
+  readonly retryConfig?: ApiRetryConfig;
 
   /**
    * Creates a new TrustFlow client instance.
@@ -56,6 +112,8 @@ export class TrustFlowClient {
    * @param config.apiBaseUrl - Optional TrustFlow API base URL for backend integration
    * @param config.apiKey - Optional API key for authenticated requests
    * @param config.ipfs - Optional configuration for the built-in `storage.upload()` IPFS helper
+   * @param config.retry - Optional retry budget for every network call (see {@link ClientConfig.retry})
+   * @param config.accounts - Optional account contexts to register up front
    *
    * @example
    * ```typescript
@@ -81,20 +139,178 @@ export class TrustFlowClient {
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
-    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
+    this.retryConfig = config.ipfs ? { ...config.retry, ...config.ipfs.retry } : config.retry;
     this.storage = new IPFSStorage(config.ipfs);
     this.balanceCache = config.balanceCache
       ? new SimpleCache(config.balanceCache.ttlMs ?? DEFAULT_BALANCE_CACHE_TTL_MS)
       : undefined;
 
     this.server = new Horizon.Server(HORIZON_URLS[this.network]);
+    this.accounts = new AccountManager();
+    for (const account of config.accounts ?? []) {
+      this.accounts.add(account);
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Accounts
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Registers an account this client can act as. The first registered account
+   * becomes active automatically.
+   *
+   * @param input - Address plus optional id, label, API key, roles and data
+   * @returns The stored account context
+   * @throws {TrustFlowError} `VALIDATION_ERROR` for a missing or malformed address
+   *
+   * @example
+   * ```typescript
+   * client.accounts.add({ address: carol, label: 'Carol', roles: ['arbitrator'] });
+   * ```
+   */
+  addAccount(input: AddAccountInput): AccountContext {
+    return this.accounts.add(input);
+  }
+
+  /**
+   * The active account, or `null` when none is registered.
+   *
+   * @example
+   * ```typescript
+   * client.activeAccount?.address;
+   * ```
+   */
+  get activeAccount(): AccountContext | null {
+    return this.accounts.active;
+  }
+
+  /**
+   * Switches the active account. Cheap and synchronous: no client is rebuilt,
+   * no Horizon or Soroban connection is reopened, and no other account's state
+   * is touched.
+   *
+   * @param ref - Account id or `G...` address
+   * @returns The now-active account context
+   * @throws {TrustFlowError} `ACCOUNT_NOT_FOUND` when `ref` is not registered
+   *
+   * @example
+   * ```typescript
+   * client.useAccount('G…BOB…');
+   * const mine = await client.getAccountInfo();
+   * ```
+   */
+  useAccount(ref: string): AccountContext {
+    return this.accounts.activate(ref);
+  }
+
+  /**
+   * Runs `fn` with `ref` active, then restores the previous active account —
+   * even if `fn` throws. Use it to scope a block of calls to one account
+   * without disturbing the app's current selection.
+   *
+   * @param ref - Account id or `G...` address
+   * @param fn - Callback invoked while `ref` is active
+   * @returns Whatever `fn` resolves to
+   *
+   * @example
+   * ```typescript
+   * const bobView = await client.asAccount(bob, async () => ({
+   *   session: client.getSession(),
+   *   balance: await client.getAccountInfo(),
+   * }));
+   * // `client.activeAccount` is unchanged here
+   * ```
+   */
+  async asAccount<T>(ref: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.accounts.activeId;
+    this.useAccount(ref);
+    try {
+      return await fn();
+    } finally {
+      if (previous !== null) this.accounts.activate(previous);
+      else this.accounts.deactivate();
+    }
+  }
+
+  /**
+   * Resolves the account a call should act as.
+   *
+   * Returns `null` — not an error — when `account` was omitted and no account
+   * is active, which is the pre-multi-account single-account case every
+   * existing integration is in. Throws only when a caller names an account
+   * that is not registered, because that is always a caller bug.
+   *
+   * @param account - Account id or `G...` address
+   * @returns The account context, or `null`
+   * @throws {TrustFlowError} `ACCOUNT_NOT_FOUND` when `account` is unknown
+   * @internal
+   */
+  resolveAccount(account?: string): AccountContext | null {
+    if (account !== undefined) {
+      const context = this.accounts.get(account);
+      if (!context) throw TrustFlowError.accountNotFound(account);
+      return this.accounts.touch(context.id);
+    }
+    const active = this.accounts.active;
+    return active ? this.accounts.touch(active.id) : null;
+  }
+
+  /**
+   * Subscribes to account registration, update, removal and activation.
+   *
+   * @param listener - Called synchronously after each change
+   * @returns An unsubscribe function
+   * @see {@link TrustFlowClient.accounts}
+   */
+  onAccountChange(listener: Parameters<AccountManager['onChange']>[0]): () => void {
+    return this.accounts.onChange(listener);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Environment
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Reports which browser/Node capabilities are present, and whether the SDK's
+   * baseline requirements are met. Never throws and never installs a polyfill.
+   *
+   * @example
+   * ```typescript
+   * const report = client.getEnvironment();
+   * if (!report.supported) {
+   *   console.error(report.missing.map((f) => f.reason));
+   * }
+   * ```
+   */
+  getEnvironment(): EnvironmentReport {
+    return detectFeatures();
+  }
+
+  /**
+   * Verifies the runtime can perform WebCrypto operations, throwing an
+   * `UNSUPPORTED_ENVIRONMENT` error that names the missing API when it cannot.
+   *
+   * @param feature - Human-readable name of the operation being attempted
+   * @throws {TrustFlowError} `UNSUPPORTED_ENVIRONMENT` when WebCrypto is absent
+   */
+  assertCryptoSupport(feature?: string): void {
+    assertWebCryptoSupport(feature);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Connection
+  // ---------------------------------------------------------------------------
 
   /**
    * Establishes connection to the Stellar network and verifies connectivity.
    * Must be called before performing any network operations.
    *
-   * @throws {TrustFlowError} If connection to the network fails
+   * Transient Horizon failures (connection reset, timeout, `429`, `5xx`) are
+   * retried with capped exponential backoff and jitter; anything else fails
+   * immediately.
+   *
+   * @throws {TrustFlowError} `CONNECTION_ERROR` if connection to the network fails
    *
    * @example
    * ```typescript
@@ -105,7 +321,12 @@ export class TrustFlowClient {
   async connect(): Promise<void> {
     try {
       // Test connection by fetching ledger info
-      await this.server.ledgers().limit(1).call();
+      await withTransientRetry(
+        () => this.getServer().ledgers().limit(1).call(),
+        undefined,
+        this.retryConfig,
+        'horizon.ledgers',
+      );
       this._connected = true;
     } catch (error) {
       this._connected = false;
@@ -122,11 +343,19 @@ export class TrustFlowClient {
     return this._connected;
   }
 
+  // ---------------------------------------------------------------------------
+  // Balances
+  // ---------------------------------------------------------------------------
+
   /**
    * Retrieves the native XLM balance for a given Stellar address.
    *
+   * Retries transient Horizon failures with capped, jittered backoff; `4xx`
+   * fails immediately.
+   *
    * @param address - Stellar public key (G... address)
-   * @param options - Set `skipCache` to bypass a configured balance cache.
+   * @param options - Set `skipCache` to bypass a configured balance cache, and
+   *   `account` to read/write a specific account's cache entry
    * @returns Balance in XLM as a string
    * @throws {TrustFlowError} If the account doesn't exist or network error occurs
    *
@@ -140,34 +369,120 @@ export class TrustFlowClient {
    * ```
    */
   async getBalance(address: string, options: GetBalanceOptions = {}): Promise<string> {
-    const cacheKey = `getBalance:${address}`;
-    return this.deduplicator.deduplicate(
-      cacheKey,
-      async () => {
-        if (!options.skipCache) {
-          const cachedBalance = this.balanceCache?.get(address);
-          if (cachedBalance !== undefined) return cachedBalance;
-        }
+    const cacheKey = this.balanceCacheKey(address, options.account);
+    if (!options.skipCache) {
+      const cachedBalance = this.balanceCache?.get(cacheKey);
+      if (cachedBalance !== undefined) return cachedBalance;
+    }
 
-        try {
-          const account = await this.server.loadAccount(address);
-          const native = account.balances.find(
-            (b: { asset_type: string }) => b.asset_type === 'native',
-          );
-          const balance = native?.balance ?? '0';
-          this.balanceCache?.set(address, balance);
-          return balance;
-        } catch (error) {
-          throw new TrustFlowError(
-            `Failed to fetch balance for ${address}`,
-            'BALANCE_FETCH_ERROR',
-            error,
-          );
-        }
-      },
-      { skipCache: options.skipCache },
-    );
+    try {
+      const account = await withTransientRetry(
+        () => this.getServer().loadAccount(address),
+        undefined,
+        this.retryConfig,
+        'horizon.loadAccount',
+      );
+      const native = account.balances.find(
+        (b: { asset_type: string }) => b.asset_type === 'native',
+      );
+      const balance = native?.balance ?? '0';
+      this.balanceCache?.set(cacheKey, balance);
+      return balance;
+    } catch (error) {
+      throw new TrustFlowError(
+        `Failed to fetch balance for ${address}`,
+        'BALANCE_FETCH_ERROR',
+        error,
+      );
+    }
   }
+
+  /**
+   * Fetches the active (or named) account's own on-chain state.
+   *
+   * Unlike {@link TrustFlowClient.getBalance}, a transient Horizon outage is
+   * retried and — if it persists — **throws**. It is never reported as
+   * `isActive: false`, which would make a network blip indistinguishable from
+   * an account that has genuinely never been funded.
+   *
+   * @param options - `account` to target a specific account; defaults to active
+   * @returns The account's balance, sequence number and activation state
+   * @throws {TrustFlowError} `ACCOUNT_NOT_FOUND` when no account is resolved,
+   *   or `CONNECTION_ERROR` when Horizon stays unreachable
+   *
+   * @example
+   * ```typescript
+   * const me = await client.getAccountInfo();
+   * if (!me.isActive) console.log('fund this account first');
+   * ```
+   */
+  async getAccountInfo(options: AccountOptions = {}): Promise<AccountInfo> {
+    const account = this.accounts.require(options.account);
+    try {
+      return await withTransientRetry(
+        () => fetchAccountInfo(account.address, this.network, this.retryConfig),
+        undefined,
+        this.retryConfig,
+        'horizon.accountInfo',
+      );
+    } catch (error) {
+      throw new TrustFlowError(
+        `Failed to fetch account info for ${account.address}`,
+        'CONNECTION_ERROR',
+        error,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sessions (per account)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the stored backend session for an account, or `null`.
+   *
+   * Sessions are namespaced by account id, so two accounts signed in on the
+   * same origin never overwrite each other's token.
+   *
+   * @param options - `account` to read a specific account's session
+   */
+  getSession(options: AccountOptions = {}): Session | null {
+    const account = this.resolveAccount(options.account);
+    return loadSession(account?.id);
+  }
+
+  /**
+   * Persists a backend session token against an account.
+   *
+   * @param token - Session token returned by `/auth/verify`
+   * @param options - `account` to scope the session; defaults to active
+   * @param expiresAt - UNIX ms expiry; defaults to a conservative 15 minutes
+   *   because the backend does not currently return a TTL
+   * @throws {TrustFlowError} `ACCOUNT_NOT_FOUND` when no account is resolved
+   */
+  setSession(token: string, options: AccountOptions = {}, expiresAt?: number): Session {
+    const account = this.accounts.require(options.account);
+    saveSession(token, account.address, expiresAt, account.id);
+    return this.getSession(options) as Session;
+  }
+
+  /**
+   * Clears the stored session for an account, leaving every other account's
+   * session intact.
+   *
+   * @param options - `account` to clear; defaults to active
+   * @returns `true` when a session was cleared
+   */
+  clearSession(options: AccountOptions = {}): boolean {
+    const account = this.resolveAccount(options.account);
+    if (!account) return false;
+    clearSession(account.id);
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Servers & configuration
+  // ---------------------------------------------------------------------------
 
   /**
    * Returns the underlying Horizon server instance for advanced operations.
@@ -217,18 +532,28 @@ export class TrustFlowClient {
   /**
    * Creates authorization headers for API requests when apiKey is configured.
    *
+   * A named or active account's own `apiKey` wins over the client-wide one, so
+   * per-account credentials never bleed into another account's request.
+   *
+   * @param options - `account` to build headers for; defaults to active
    * @returns Headers object with authentication
    * @internal
    */
-  getAuthHeaders(): Record<string, string> {
+  getAuthHeaders(options: AccountOptions = {}): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-SDK-Version': this.version,
       'X-API-Version': this.apiVersion,
     };
 
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    const account = this.resolveAccount(options.account);
+    if (account) {
+      headers['X-TrustFlow-Account'] = account.id;
+    }
+
+    const apiKey = account?.apiKey ?? this.apiKey;
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     return headers;
@@ -248,6 +573,9 @@ export class TrustFlowClient {
 
   /**
    * Generates auto-bound, type-safe contract client methods from Soroban spec entries.
+   *
+   * The returned binding inherits this client's account context, so its
+   * `invoke`/`read`/`simulate` calls can name an account per call.
    *
    * @param specEntries - Array of Soroban spec entries (XDR base64 strings, ScSpecEntry objects, or Buffers)
    * @param overrideContractId - Optional contract ID override (defaults to client's contractId)
@@ -277,7 +605,9 @@ export class TrustFlowClient {
     rpcUrl: string;
     apiConfigured: boolean;
     version: string;
-    apiVersion: string;
+    activeAccount: string | null;
+    accountCount: number;
+    retry: ApiRetryConfig | undefined;
   } {
     return {
       network: this.network,
@@ -285,43 +615,18 @@ export class TrustFlowClient {
       rpcUrl: this.rpcUrl,
       apiConfigured: Boolean(this.apiBaseUrl && this.apiKey),
       version: this.version,
-      apiVersion: this.apiVersion,
+      activeAccount: this.accounts.active?.address ?? null,
+      accountCount: this.accounts.size,
+      retry: this.retryConfig,
     };
   }
 
   /**
-   * Verifies compatibility with the backend API version.
-   *
-   * @param options - Options for compatibility verification
-   * @param options.warnOnly - When true, emits warning instead of throwing on mismatch
-   * @returns Version negotiation and compatibility details
+   * Namespaces a balance cache key by account so two accounts never read each
+   * other's cached balance, even for the same address.
    */
-  async verifyApiCompatibility(options?: { warnOnly?: boolean }): Promise<ApiVersionNegotiationResult> {
-    if (!this.apiBaseUrl) {
-      return {
-        serverVersion: 'N/A',
-        clientVersion: this.apiVersion,
-        compatible: true,
-      };
-    }
-
-    const result = await negotiateApiVersion(this.apiBaseUrl, {
-      clientVersion: this.apiVersion,
-      timeoutMs: 5000,
-    });
-
-    if (!result.compatible && !options?.warnOnly) {
-      throw TrustFlowError.versionMismatch(
-        this.apiVersion,
-        result.serverVersion,
-        result.warning,
-      );
-    }
-
-    if (result.warning) {
-      logger.warn(`[TrustFlow API Version] ${result.warning}`);
-    }
-
-    return result;
+  private balanceCacheKey(address: string, account?: string): string {
+    const context = this.resolveAccount(account);
+    return context ? `${context.id}:${address}` : address;
   }
 }

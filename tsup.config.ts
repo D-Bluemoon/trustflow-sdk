@@ -9,6 +9,10 @@ export default defineConfig({
     'src/escrow/index.ts',
     'src/wallet/index.ts',
     'src/utils/index.ts',
+    // Node-only entry. The only module graph in the package that reaches for
+    // `http`/`https`, which is what keeps every other entry polyfill-free in a
+    // browser bundle (#webpack5).
+    'src/node/index.ts',
   ],
   format: ['cjs', 'esm'],
   dts: true,
@@ -21,5 +25,9 @@ export default defineConfig({
   minify: false,
   outDir: 'dist',
   target: 'es2020',
+  // `neutral` (rather than `node`) so no entry silently gains Node built-ins.
+  // Node's own `http`/`https` stay external — they are runtime globals of the
+  // process, not dependencies to bundle.
   platform: 'neutral',
+  external: ['http', 'https', 'node:http', 'node:https'],
 });

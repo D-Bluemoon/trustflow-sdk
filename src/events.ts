@@ -81,10 +81,7 @@ export type ParsedTrustFlowEvent =
   | (ParsedEventBase & { type: 'escrow_released'; data: EscrowReleasedData })
   | (ParsedEventBase & { type: 'dispute_raised'; data: DisputeRaisedData })
   | (ParsedEventBase & {
-      type: Exclude<
-        TrustFlowEventType,
-        'escrow_created' | 'escrow_released' | 'dispute_raised'
-      >;
+      type: Exclude<TrustFlowEventType, 'escrow_created' | 'escrow_released' | 'dispute_raised'>;
       data: Record<string, unknown>;
     });
 

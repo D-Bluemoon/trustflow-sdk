@@ -16,8 +16,8 @@ export {
   generateContractBindings,
   generateTypeScriptBindings,
 } from './bindings';
-export { invokeContract, type SignAndSubmitFn } from './invoke';
-export { readContractState } from './read';
+export { invokeContract, type SignAndSubmitFn, type InvokeContractOptions } from './invoke';
+export { readContractState, type ReadContractStateOptions } from './read';
 export { simulateContractCall } from './simulate';
 export {
   buildCreateEscrowArgs,
@@ -27,4 +27,4 @@ export {
   buildDisputeArgs,
   buildVoteArgs,
 } from './build';
-export type { SimulationResult } from './simulate';
+export type { SimulationResult, SimulateContractCallOptions } from './simulate';

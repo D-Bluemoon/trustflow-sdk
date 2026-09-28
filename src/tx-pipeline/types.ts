@@ -85,6 +85,13 @@ export interface PipelineSubmission {
 
 /** End-to-end parameters for {@link TransactionPipeline.run}. */
 export interface RunPipelineParams extends AssembleParams {
+  /**
+   * Account id or `G...` address this run belongs to. Defaults to the client's
+   * active account. Recorded on the account's `lastUsedAt` so per-account
+   * state stays attributable; an unregistered value throws
+   * `ACCOUNT_NOT_FOUND` before any RPC call is made.
+   */
+  account?: string;
   /** Keypair(s) that must sign the assembled inner transaction. */
   signers: Keypair[];
   /** Options for the simulate+assemble stage. */

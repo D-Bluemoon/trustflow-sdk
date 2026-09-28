@@ -21,7 +21,7 @@ jest.mock('@stellar/stellar-sdk', () => {
     },
     Contract: jest.fn(),
     Address: jest.fn().mockImplementation(() => ({
-      toScVal: jest.fn().mockReturnValue('mock_scval')
+      toScVal: jest.fn().mockReturnValue('mock_scval'),
     })),
     TransactionBuilder: jest.fn().mockImplementation(() => ({
       addOperation: jest.fn().mockReturnThis(),
@@ -38,6 +38,10 @@ describe('contract module', () => {
     network: 'testnet',
     contractId: 'C...',
     getNetworkPassphrase: jest.fn().mockReturnValue('Test SDF Network ; September 2015'),
+    // Contract calls resolve the account context first so a caller can target a
+    // non-active account; `null` means "no account context", the single-account
+    // default.
+    resolveAccount: jest.fn(() => null),
     // Contract calls now go through the client's shared accessor, so this
     // constructs through the same mocked rpc.Server each test configures.
     getSorobanServer: jest.fn(() => new (rpc.Server as unknown as new () => rpc.Server)()),
@@ -59,7 +63,10 @@ describe('contract module', () => {
     });
 
     it('buildReleaseArgs returns valid arguments', () => {
-      const args = buildReleaseArgs('escrow1', 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
+      const args = buildReleaseArgs(
+        'escrow1',
+        'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      );
       expect(args.length).toBe(2);
     });
 
@@ -73,7 +80,9 @@ describe('contract module', () => {
     it('returns error if simulation fails', async () => {
       (rpc.Api.isSimulationError as unknown as jest.Mock).mockReturnValue(true);
       const mockServer = {
-        getAccount: jest.fn().mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
+        getAccount: jest
+          .fn()
+          .mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
         simulateTransaction: jest.fn().mockResolvedValue({ error: 'sim error' }),
       };
       (rpc.Server as jest.Mock).mockImplementation(() => mockServer);
@@ -90,7 +99,9 @@ describe('contract module', () => {
     it('returns success if simulation succeeds and no signAndSubmit provided', async () => {
       (rpc.Api.isSimulationError as unknown as jest.Mock).mockReturnValue(false);
       const mockServer = {
-        getAccount: jest.fn().mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
+        getAccount: jest
+          .fn()
+          .mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
         simulateTransaction: jest.fn().mockResolvedValue({ result: { retval: 'value' } }),
       };
       (rpc.Server as jest.Mock).mockImplementation(() => mockServer);
@@ -105,11 +116,13 @@ describe('contract module', () => {
       // @ts-ignore
       expect(result.returnValue).toBe('value');
     });
-    
+
     it('signs and submits transaction if signAndSubmit is provided', async () => {
       (rpc.Api.isSimulationError as unknown as jest.Mock).mockReturnValue(false);
       const mockServer = {
-        getAccount: jest.fn().mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
+        getAccount: jest
+          .fn()
+          .mockResolvedValue({ accountId: () => 'GBM...', sequenceNumber: () => '1' }),
         simulateTransaction: jest.fn().mockResolvedValue({ result: { retval: 'value' } }),
       };
       (rpc.Server as jest.Mock).mockImplementation(() => mockServer);
@@ -191,9 +204,7 @@ describe('contract module', () => {
     it('populates returnValue from the simulated result', async () => {
       (rpc.Api.isSimulationError as unknown as jest.Mock).mockReturnValue(false);
       const mockServer = {
-        simulateTransaction: jest
-          .fn()
-          .mockResolvedValue({ result: { retval: 'decoded_value' } }),
+        simulateTransaction: jest.fn().mockResolvedValue({ result: { retval: 'decoded_value' } }),
       };
       (rpc.Server as jest.Mock).mockImplementation(() => mockServer);
 
