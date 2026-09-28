@@ -26,3 +26,6 @@ export const NETWORK_PASSPHRASES: Record<Network, string> = {
 export const ESCROW_MIN_AMOUNT_STROOPS = 1_000_000n; // 0.1 XLM
 export const ESCROW_MAX_DURATION_BLOCKS = 1_000_000;
 export const SDK_VERSION = '0.2.1';
+export const DEFAULT_API_VERSION = '1.0.0';
+export const API_VERSION_HEADER = 'X-API-Version';
+export const SDK_VERSION_HEADER = 'X-SDK-Version';

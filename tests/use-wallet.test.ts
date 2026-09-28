@@ -23,6 +23,7 @@ describe('useWallet', () => {
     expect(result.current.wallet).toBeNull();
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(result.current.isRejected).toBe(false);
     expect(result.current.isConnected).toBe(false);
   });
 
@@ -134,5 +135,47 @@ describe('useWallet', () => {
     expect(mockDisconnect).toHaveBeenCalledTimes(1);
     expect(result.current.wallet).toBeNull();
     expect(result.current.isConnected).toBe(false);
+  });
+
+  it('flags isRejected when connection is rejected by user and allows immediate retry', async () => {
+    mockConnect.mockRejectedValueOnce(new Error('User rejected the request'));
+    const { result } = renderHook(() => useWallet());
+
+    await act(async () => {
+      await expect(result.current.connect()).rejects.toThrow('User rejected the request');
+    });
+
+    expect(result.current.isRejected).toBe(true);
+    expect(result.current.error).toBe('User rejected the request');
+    expect(result.current.wallet).toBeNull();
+
+    // Now retry without page reload
+    mockConnect.mockResolvedValueOnce(connection);
+    await act(async () => {
+      await result.current.retry();
+    });
+
+    expect(result.current.isRejected).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.wallet).toBe(connection);
+    expect(result.current.isConnected).toBe(true);
+  });
+
+  it('resets error and isRejected state via reset()', async () => {
+    mockConnect.mockRejectedValueOnce(new Error('User rejected'));
+    const { result } = renderHook(() => useWallet());
+
+    await act(async () => {
+      await expect(result.current.connect()).rejects.toThrow();
+    });
+
+    expect(result.current.isRejected).toBe(true);
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.isRejected).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 });

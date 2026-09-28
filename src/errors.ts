@@ -23,7 +23,9 @@ export type TrustFlowErrorCode =
   | 'AUTH_ERROR'
   | 'TIMEOUT'
   | 'INVALID_CONTRACT_CALL'
-  | 'CIRCUIT_BREAKER_OPEN';
+  | 'CIRCUIT_BREAKER_OPEN'
+  | 'VERSION_MISMATCH'
+  | 'USER_REJECTED';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
@@ -42,6 +44,22 @@ export class TrustFlowError extends Error {
     }
     const message = error instanceof Error ? error.message : String(error);
     return new TrustFlowError(message, code, error);
+  }
+
+  static versionMismatch(
+    clientVersion: string,
+    serverVersion: string,
+    details?: string,
+  ): TrustFlowError {
+    const reason = details ? ` (${details})` : '';
+    return new TrustFlowError(
+      `API version mismatch: client expected ${clientVersion}, server reported ${serverVersion}${reason}`,
+      'VERSION_MISMATCH',
+    );
+  }
+
+  static userRejected(detail = 'User rejected wallet connection', cause?: unknown): TrustFlowError {
+    return new TrustFlowError(detail, 'USER_REJECTED', cause);
   }
 
   static notFound(resource: string): TrustFlowError {

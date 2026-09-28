@@ -25,6 +25,7 @@ export interface ClientConfig {
   rpcUrl?: string;
   apiBaseUrl?: string;
   apiKey?: string;
+  apiVersion?: string;
   /**
    * Enables short-lived caching for `getBalance` calls. Omit this option to
    * preserve the default behavior of fetching every balance from Horizon.

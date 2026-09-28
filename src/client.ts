@@ -5,7 +5,11 @@ import {
   NETWORK_PASSPHRASES,
   DEFAULT_NETWORK,
   SDK_VERSION,
+  DEFAULT_API_VERSION,
 } from './constants';
+import { RequestDeduplicator } from './utils/dedup';
+import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
+import { logger } from './utils/logger';
 import { TrustFlowError } from './errors';
 import type { Network, ClientConfig, LoggingConfig } from './types';
 import { IPFSStorage } from './storage';
@@ -30,6 +34,7 @@ export class TrustFlowClient {
   private server: Horizon.Server;
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
+  private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
   private readonly logger: SDKLogger;
 
@@ -39,6 +44,7 @@ export class TrustFlowClient {
   readonly apiBaseUrl?: string;
   readonly apiKey?: string;
   readonly version: string = SDK_VERSION;
+  readonly apiVersion: string;
   /** IPFS upload helper — `client.storage.upload(file)`. */
   readonly storage: IPFSStorage;
 
@@ -79,6 +85,7 @@ export class TrustFlowClient {
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
+    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
     this.storage = new IPFSStorage(config.ipfs);
     this.balanceCache = config.balanceCache
       ? new SimpleCache(config.balanceCache.ttlMs ?? DEFAULT_BALANCE_CACHE_TTL_MS)
@@ -252,6 +259,7 @@ export class TrustFlowClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-SDK-Version': this.version,
+      'X-API-Version': this.apiVersion,
     };
 
     if (this.apiKey) {
@@ -304,6 +312,7 @@ export class TrustFlowClient {
     rpcUrl: string;
     apiConfigured: boolean;
     version: string;
+    apiVersion: string;
   } {
     return {
       network: this.network,
@@ -311,6 +320,7 @@ export class TrustFlowClient {
       rpcUrl: this.rpcUrl,
       apiConfigured: Boolean(this.apiBaseUrl && this.apiKey),
       version: this.version,
+      apiVersion: this.apiVersion,
     };
   }
 }
