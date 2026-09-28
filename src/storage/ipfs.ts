@@ -1,6 +1,7 @@
 import type { SDKResult } from '../types/index';
 import type { AxiosInstance } from 'axios';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import { logger } from '../utils/logger';
 
 /** Default upload endpoint — a raw-body IPFS upload API (e.g. web3.storage-compatible). */
 const DEFAULT_IPFS_API_URL = 'https://api.web3.storage/upload';
@@ -85,6 +86,7 @@ export class IPFSStorage {
     const contentType =
       options.contentType || (isBlob ? (file as Blob).type : '') || 'application/octet-stream';
 
+    logger.debug('Uploading file to IPFS', { size, filename, contentType });
     try {
       const body = isBlob
         ? new Uint8Array(await (file as Blob).arrayBuffer())
@@ -100,10 +102,13 @@ export class IPFSStorage {
       });
       const cid = response.data?.cid;
       if (!cid) {
+        logger.warn('IPFS upload succeeded without CID');
         return { ok: false, error: 'Upload succeeded but response did not include a CID' };
       }
+      logger.info('IPFS upload succeeded', { cid });
       return { ok: true, data: { cid, url: `${this.gatewayUrl}/${cid}` } };
     } catch (err) {
+      logger.error('IPFS upload failed', { error: toApiErrorMessage(err) });
       return { ok: false, error: toApiErrorMessage(err) };
     }
   }

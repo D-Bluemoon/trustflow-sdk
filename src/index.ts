@@ -28,6 +28,7 @@ export * from './utils/timezone';
 export * from './utils/request-validation';
 export * from './utils/connection-pool';
 export * from './utils/circuit-breaker';
+export * from './utils/logger';
 export * from './tx-pipeline';
 export * from './contract';
 export { TrustFlowClient } from './client';

@@ -7,9 +7,11 @@ import {
   SDK_VERSION,
 } from './constants';
 import { TrustFlowError } from './errors';
-import type { Network, ClientConfig } from './types';
+import type { Network, ClientConfig, LoggingConfig } from './types';
 import { IPFSStorage } from './storage';
 import { SimpleCache } from './utils/cache';
+import { createContractBinding, SorobanContractClient } from './contract';
+import { SDKLogger, LogLevel, Logger } from './utils/logger';
 
 /** Default TTL for opt-in Horizon balance caching. */
 export const DEFAULT_BALANCE_CACHE_TTL_MS = 5_000;
@@ -19,8 +21,6 @@ export interface GetBalanceOptions {
   /** Fetch from Horizon even when a non-expired cached balance is available. */
   skipCache?: boolean;
 }
-import { createContractBinding, SorobanContractClient } from './contract';
-
 
 /**
  * TrustFlowClient is the main entry point for interacting with the TrustFlow Protocol.
@@ -31,6 +31,7 @@ export class TrustFlowClient {
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
   private _connected: boolean = false;
+  private readonly logger: SDKLogger;
 
   readonly network: Network;
   readonly contractId: string;
@@ -51,6 +52,7 @@ export class TrustFlowClient {
    * @param config.apiBaseUrl - Optional TrustFlow API base URL for backend integration
    * @param config.apiKey - Optional API key for authenticated requests
    * @param config.ipfs - Optional configuration for the built-in `storage.upload()` IPFS helper
+   * @param config.logging - Optional logging configuration (level, custom logger, JSON output)
    *
    * @example
    * ```typescript
@@ -58,7 +60,8 @@ export class TrustFlowClient {
    *   contractId: process.env.CONTRACT_ID!,
    *   network: 'TESTNET',
    *   apiBaseUrl: 'https://api.trustflow.xyz',
-   *   apiKey: process.env.API_KEY
+   *   apiKey: process.env.API_KEY,
+   *   logging: { level: 'debug' }
    * });
    * await client.connect();
    *
@@ -82,6 +85,35 @@ export class TrustFlowClient {
       : undefined;
 
     this.server = new Horizon.Server(HORIZON_URLS[this.network]);
+
+    // Initialize logger from config
+    this.logger = this.createLogger(config.logging);
+  }
+
+  private createLogger(logging?: LoggingConfig): SDKLogger {
+    if (logging?.logger) {
+      // Wrap custom logger in SDKLogger interface
+      const customLogger = logging.logger;
+      return new SDKLogger({
+        minLevel: 'silent',
+        logger: {
+          debug: (msg, ctx) => customLogger.debug(msg, ctx),
+          info: (msg, ctx) => customLogger.info(msg, ctx),
+          warn: (msg, ctx) => customLogger.warn(msg, ctx),
+          error: (msg, ctx) => customLogger.error(msg, ctx),
+        },
+      });
+    }
+    return new SDKLogger({
+      minLevel: logging?.level ?? 'error',
+      json: logging?.json,
+      prefix: 'TrustFlowClient',
+    });
+  }
+
+  /** Get the internal logger instance */
+  getLogger(): SDKLogger {
+    return this.logger;
   }
 
   /**
@@ -97,12 +129,15 @@ export class TrustFlowClient {
    * ```
    */
   async connect(): Promise<void> {
+    this.logger.debug('Connecting to Stellar network', { network: this.network, rpcUrl: this.rpcUrl });
     try {
       // Test connection by fetching ledger info
       await this.server.ledgers().limit(1).call();
       this._connected = true;
+      this.logger.info('Connected to Stellar network', { network: this.network });
     } catch (error) {
       this._connected = false;
+      this.logger.error('Failed to connect to Stellar network', { network: this.network, error });
       throw new TrustFlowError('Failed to connect to Stellar network', 'CONNECTION_ERROR', error);
     }
   }
@@ -134,9 +169,13 @@ export class TrustFlowClient {
    * ```
    */
   async getBalance(address: string, options: GetBalanceOptions = {}): Promise<string> {
+    this.logger.debug('Fetching balance', { address, skipCache: options.skipCache });
     if (!options.skipCache) {
       const cachedBalance = this.balanceCache?.get(address);
-      if (cachedBalance !== undefined) return cachedBalance;
+      if (cachedBalance !== undefined) {
+        this.logger.debug('Returning cached balance', { address });
+        return cachedBalance;
+      }
     }
 
     try {
@@ -146,8 +185,10 @@ export class TrustFlowClient {
       );
       const balance = native?.balance ?? '0';
       this.balanceCache?.set(address, balance);
+      this.logger.debug('Fetched balance from Horizon', { address, balance });
       return balance;
     } catch (error) {
+      this.logger.error('Failed to fetch balance', { address, error });
       throw new TrustFlowError(
         `Failed to fetch balance for ${address}`,
         'BALANCE_FETCH_ERROR',
@@ -273,4 +314,3 @@ export class TrustFlowClient {
     };
   }
 }
-

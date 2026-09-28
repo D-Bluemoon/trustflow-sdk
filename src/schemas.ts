@@ -72,6 +72,14 @@ export const ClientConfigSchema = z.object({
   rpcUrl: z.string().url('RPC URL must be a valid URL').optional(),
   apiBaseUrl: z.string().url('API base URL must be a valid URL').optional(),
   apiKey: z.string().optional(),
+  logging: z
+    .object({
+      level: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
+      json: z.boolean().optional(),
+      // Custom logger instances (pino/winston/...) are accepted as-is.
+      logger: z.any().optional(),
+    })
+    .optional(),
 });
 
 // ── Inferred types ────────────────────────────────────────────────────────────

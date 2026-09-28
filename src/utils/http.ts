@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
+import { logger } from './logger';
 
 /**
  * Retry tuning for backend API requests.
@@ -26,6 +27,8 @@ const DEFAULT_RETRY_CONFIG: Required<ApiRetryConfig> = {
   retryDelayMs: 250,
   maxRetryDelayMs: 2000,
 };
+
+const httpLogger = logger;
 
 /**
  * Creates an Axios instance configured with safe automatic retries for transient failures.
@@ -58,18 +61,60 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
     retryCondition: (error) => {
       const status = error.response?.status;
       if (status === 429) {
+        httpLogger.debug('Rate limited (429), will retry', { url: error.config?.url });
         return true;
       }
       if (typeof status === 'number' && status >= 500 && status < 600) {
+        httpLogger.debug('Server error, will retry', { url: error.config?.url, status });
         return true;
       }
       return axiosRetry.isNetworkOrIdempotentRequestError(error);
     },
     retryDelay: (retryCount) => {
       const delay = retryConfig.retryDelayMs * 2 ** (retryCount - 1);
-      return Math.min(delay, retryConfig.maxRetryDelayMs);
+      const finalDelay = Math.min(delay, retryConfig.maxRetryDelayMs);
+      httpLogger.debug('Retrying request', { retryCount, delay: finalDelay });
+      return finalDelay;
     },
   });
+
+  // Request/response logging interceptors (optional-chained so unit tests
+  // that mock `axios.create` without interceptors keep working).
+  instance.interceptors?.request?.use(
+    (config) => {
+      httpLogger.debug('HTTP request', {
+        method: config.method?.toUpperCase(),
+        url: config.url,
+        baseURL: config.baseURL,
+      });
+      return config;
+    },
+    (error) => {
+      httpLogger.error('HTTP request error', { error: error.message });
+      return Promise.reject(error);
+    }
+  );
+
+  instance.interceptors?.response?.use(
+    (response) => {
+      httpLogger.debug('HTTP response', {
+        status: response.status,
+        url: response.config.url,
+        baseURL: response.config.baseURL,
+      });
+      return response;
+    },
+    (error) => {
+      const status = error.response?.status;
+      httpLogger.warn('HTTP error response', {
+        status,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        message: error.message,
+      });
+      return Promise.reject(error);
+    }
+  );
 
   return instance;
 }

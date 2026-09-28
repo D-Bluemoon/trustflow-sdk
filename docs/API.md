@@ -173,7 +173,46 @@ Throws `TrustFlowError` (`VALIDATION_ERROR`) when a required field is missing.
 
 ## EscrowMonitor
 - `.on(event, handler)` — subscribe to escrow events
-- `.startPolling(intervalMs, fetchFn)` — begin polling
+- `.off(event, handler)` — unsubscribe
+- `.onError(callback)` — observe fetch/handler failures (`{ phase: 'fetch' | 'handler' }`)
+- `.onReconnect(callback)` — notified when resilient polling recovers (`{ cursor, failures }`)
+- `.onGapDetected(callback)` — notified of possible missed events (`{ reason, fromLedger, toLedger, cursor }`)
+- `.startPolling(intervalMs, fetchFn)` — begin simple polling (backward compatible)
+- `.startResilientPolling(intervalMs, fetchFn, options?)` — cursor-aware polling with backoff, dedup and gap detection
+- `.startResilientRawPolling(intervalMs, contractId, fetchRaw, options?)` — same, parsing raw `getEvents` output via `parseEvents`
+- `.deliver(events)` — dispatch already-parsed events to handlers
+- `.stopPolling()` — stop any active polling loop
+
+### Resilient polling (recommended for production)
+
+Soroban RPC serves contract events through `getEvents` (cursor / `startLedger`
+polling, no push WebSocket), so "reconnect" means resuming polling from the
+last saved position. `startResilientPolling` handles this for you:
+
+```typescript
+import { EscrowMonitor, fetchContractEvents, parseEvents } from '@trustflow/sdk';
+
+const monitor = new EscrowMonitor();
+monitor.on('escrow_created', (e) => console.log(e.data.escrowId));
+monitor.onReconnect(({ failures }) => console.log(`reconnected after ${failures} failure(s)`));
+monitor.onGapDetected((gap) => console.warn('possible missed events', gap));
+
+monitor.startResilientPolling(
+  5000,
+  async (cursor) => {
+    const page = await fetchContractEvents(client.getSorobanServer(), { contractId, cursor });
+    return parseEvents(page.events, contractId);
+  },
+  { store }, // optional CursorStore; in-memory by default
+);
+```
+
+Behavior: resumes from the saved cursor after transient RPC failures with
+exponential backoff (fetch itself reuses the shared `retry` helper), dedups
+across resumes by `pagingToken`/`id`, persists the newest cursor after each
+successful batch, and reports ledger discontinuities or expired cursors
+(cursor older than the RPC retention window cannot be backfilled) via
+`onGapDetected`.
 
 ## DisputeClient
 - `.raiseDispute(params)` — raise a dispute (automatic retry on transient backend failures)
@@ -348,10 +387,20 @@ Utilities for parsing raw Soroban contract events into typed TrustFlow event str
   - Maps each through `parseEvent`
   - Returns array of successfully-parsed events
 
+- `fetchContractEvents(server, { contractId, startLedger?, cursor?, limit? })` — `getEvents`-backed fetch helper
+  - Applies a contract-ID filter, resumes from `cursor` (or `startLedger`), paginates with `limit`
+  - Returns `{ events: RawContractEvent[], nextCursor?, latestLedger? }`
+  - Rethrows RPC errors (e.g. cursor older than the retention window) so callers can surface them as gaps
+
+- `createRpcEventFetcher(server, { contractId, startLedger?, limit? })` — builds a `(cursor?) => RawContractEvent[]` fetcher for `EscrowMonitor.startResilientRawPolling`
+
+- `InMemoryCursorStore` — process-lifetime `CursorStore`; implement `CursorStore` (`get()`/`set()`) for durable (file/DB) persistence
+
 ### Types
 
 - `TrustFlowEventType` — Union of event type strings: 'escrow_created' | 'escrow_released' | 'escrow_cancelled' | 'dispute_raised' | 'dispute_resolved' | 'milestone_completed'
-- `ParsedEvent<T>` — Typed event with `type`, `contractId`, `ledger`, `timestamp`, `id`, `data`
+- `ParsedEvent<T>` — Typed event with `type`, `contractId`, `ledger`, `timestamp`, `id`, `pagingToken`, `data` (`pagingToken` is carried through so parsed events can resume polling)
+- `CursorStore`, `FetchContractEventsOptions`, `ContractEventsPage` — resilient subscription primitives
 - `EscrowCreatedData`, `EscrowReleasedData`, `DisputeRaisedData` — Event-specific data shapes
 
 ### Example

@@ -1,4 +1,5 @@
 import type { IPFSConfig } from './storage';
+import type { LogLevel, Logger } from './utils/logger';
 
 export type Network = 'TESTNET' | 'MAINNET';
 
@@ -6,6 +7,16 @@ export type Network = 'TESTNET' | 'MAINNET';
 export interface BalanceCacheConfig {
   /** Cache lifetime in milliseconds. Defaults to 5 seconds when caching is enabled. */
   ttlMs?: number;
+}
+
+/** Logging configuration for the SDK client */
+export interface LoggingConfig {
+  /** Minimum log level (default: 'error'). Use 'silent' to disable all logging. */
+  level?: LogLevel;
+  /** Custom logger instance (pino, winston, console, etc.). Overrides `level` if provided. */
+  logger?: Logger;
+  /** Enable JSON structured output (default: false) */
+  json?: boolean;
 }
 
 export interface ClientConfig {
@@ -21,6 +32,8 @@ export interface ClientConfig {
   balanceCache?: BalanceCacheConfig;
   /** Optional configuration for the built-in `storage.upload()` IPFS helper. */
   ipfs?: IPFSConfig;
+  /** Logging configuration */
+  logging?: LoggingConfig;
 }
 
 export enum EscrowStatus {
