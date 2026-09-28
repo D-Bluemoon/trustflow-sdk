@@ -1,8 +1,10 @@
-import type { IPFSConfig } from './storage';
-import type { ApiRetryConfig } from './utils/http';
-import type { AddAccountInput } from './accounts/types';
+import type { IPFSConfig } from "./storage";
+import type { ApiRetryConfig } from "./utils/http";
+import type { AddAccountInput } from "./accounts/types";
+import type { LogLevel, Logger } from "./utils/logger";
+import type { Horizon, rpc } from "@stellar/stellar-sdk";
 
-export type Network = 'TESTNET' | 'MAINNET';
+export type Network = "TESTNET" | "MAINNET";
 
 /** Options for opt-in caching of Horizon balance lookups. */
 export interface BalanceCacheConfig {
@@ -12,7 +14,7 @@ export interface BalanceCacheConfig {
 
 /** Logging configuration for the SDK client */
 export interface LoggingConfig {
-  /** Minimum log level (default: 'error'). Use 'silent' to disable all logging. */
+  /** Minimum log level (default: "error"). Use "silent" to disable all logging. */
   level?: LogLevel;
   /** Custom logger instance (pino, winston, console, etc.). Overrides `level` if provided. */
   logger?: Logger;
@@ -20,74 +22,48 @@ export interface LoggingConfig {
   json?: boolean;
 }
 
+/** Configuration options for initializing a TrustFlowClient instance. */
 export interface ClientConfig {
+  /** Target network ("TESTNET" or "MAINNET"). Defaults to "TESTNET". */
   network?: Network;
+  /** Soroban contract ID for the TrustFlow protocol. */
   contractId: string;
+  /** Custom Soroban RPC endpoint URL. */
   rpcUrl?: string;
+  /** Custom Horizon server endpoint URL. */
+  horizonUrl?: string;
+  /** Custom Stellar network passphrase for private / standalone networks. */
+  networkPassphrase?: string;
+  /** Base URL for the TrustFlow backend API. */
   apiBaseUrl?: string;
+  /** Optional API key for backend authenticated endpoints. */
   apiKey?: string;
+  /** Expected API version string. */
   apiVersion?: string;
-  /**
-   * Enables short-lived caching for `getBalance` calls. Omit this option to
-   * preserve the default behavior of fetching every balance from Horizon.
-   */
+  /** Enables short-lived caching for `getBalance` calls. */
   balanceCache?: BalanceCacheConfig;
   /** Optional configuration for the built-in `storage.upload()` IPFS helper. */
   ipfs?: IPFSConfig;
-  /**
-   * Retry budget for every network call the client makes — Horizon reads
-   * (`connect`, `getBalance`), Soroban RPC reads (`readContractState`,
-   * `simulateContractCall`, `invokeContract`), `TransactionPipeline` stages,
-   * and the backend/IPFS HTTP helpers.
-   *
-   * Only transient failures are retried (transport errors, timeouts, `429`,
-   * `5xx`, Soroban `TRY_AGAIN_LATER`); `4xx`, simulation errors, node `ERROR`
-   * rejections and on-chain `FAILED` results fail fast. Delays are
-   * exponential, jittered, capped by `maxRetryDelayMs`, and a `Retry-After`
-   * header wins over the schedule when the server sends one.
-   *
-   * Defaults: 2 retries (3 attempts total), 300ms base delay, 5s cap.
-   *
-   * @example
-   * ```typescript
-   * const client = new TrustFlowClient({
-   *   contractId,
-   *   retry: { retries: 4, retryDelayMs: 500, maxRetryDelayMs: 10_000 },
-   * });
-   * ```
-   */
+  /** Retry budget for network and RPC calls. */
   retry?: ApiRetryConfig;
-  /**
-   * Account contexts to register on construction. The first entry becomes the
-   * active account; the rest are available immediately for per-call targeting
-   * via `{ account }` or {@link TrustFlowClient.useAccount}.
-   *
-   * Omit this to keep the original single-account behaviour: no account context
-   * exists, and every method that can target an account simply has none to
-   * target.
-   *
-   * @example
-   * ```typescript
-   * const client = new TrustFlowClient({
-   *   contractId,
-   *   accounts: [
-   *     { address: alice, label: 'Alice', roles: ['depositor'] },
-   *     { address: bob, label: 'Bob', roles: ['beneficiary'] },
-   *   ],
-   * });
-   * ```
-   */
+  /** Initial accounts to configure on the client. */
   accounts?: AddAccountInput[];
+  /** Dependency injection seam for testing: custom Soroban RPC server instance. */
+  rpcServer?: rpc.Server;
+  /** Dependency injection seam for testing: custom Horizon server instance. */
+  horizonServer?: Horizon.Server;
 }
 
+/** Status of an escrow contract. */
 export enum EscrowStatus {
-  Pending = 'PENDING',
-  Active = 'ACTIVE',
-  Released = 'RELEASED',
-  Disputed = 'DISPUTED',
-  Cancelled = 'CANCELLED',
+  Pending = "PENDING",
+  Active = "ACTIVE",
+  Released = "RELEASED",
+  Disputed = "DISPUTED",
+  Cancelled = "CANCELLED",
 }
 
+/** Escrow entity representation. */
 export interface Escrow {
   id: string;
   sender: string;
@@ -99,6 +75,7 @@ export interface Escrow {
   metadata?: Record<string, string>;
 }
 
+/** Parameters for creating an escrow. */
 export interface CreateEscrowParams {
   sender: string;
   recipient: string;
@@ -107,11 +84,13 @@ export interface CreateEscrowParams {
   metadata?: Record<string, string>;
 }
 
+/** Parameters for releasing an escrow. */
 export interface ReleaseEscrowParams {
   escrowId: string;
   caller: string;
 }
 
+/** Parameters for disputing an escrow. */
 export interface DisputeEscrowParams {
   escrowId: string;
   caller: string;

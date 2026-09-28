@@ -1,3 +1,4 @@
+import { verifyApiCompatibility } from './utils/version';
 import { Config, Horizon, rpc, xdr } from '@stellar/stellar-sdk';
 import {
   HORIZON_URLS,
@@ -7,15 +8,14 @@ import {
   SDK_VERSION,
   DEFAULT_API_VERSION,
 } from './constants';
-import { RequestDeduplicator } from './utils/dedup';
-import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
-import { logger } from './utils/logger';
+import { logger, type SDKLogger } from './utils/logger';
 import { TrustFlowError } from './errors';
-import type { Network, ClientConfig, LoggingConfig } from './types';
+import type { Network, ClientConfig } from './types';
 import { IPFSStorage } from './storage';
 import { SimpleCache } from './utils/cache';
 import { AccountManager } from './accounts/manager';
 import type { AccountContext, AccountOptions, AddAccountInput } from './accounts/types';
+import { assertStellarAddress } from './utils/validation';
 import { fetchAccountInfo, type AccountInfo } from './stellar/account';
 import { withTransientRetry } from './utils/node-retry';
 import {
@@ -82,13 +82,14 @@ export class TrustFlowClient {
   private server: Horizon.Server;
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
-  private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
   private readonly logger: SDKLogger;
 
   readonly network: Network;
   readonly contractId: string;
   readonly rpcUrl: string;
+  readonly horizonUrl: string;
+  readonly networkPassphrase: string;
   readonly apiBaseUrl?: string;
   readonly apiKey?: string;
   readonly version: string = SDK_VERSION;
@@ -136,18 +137,39 @@ export class TrustFlowClient {
       throw new TrustFlowError('contractId is required', 'INVALID_CONFIG');
     }
 
+    if (config.rpcUrl) {
+      try {
+        new URL(config.rpcUrl);
+      } catch {
+        throw new TrustFlowError(`Invalid rpcUrl: "${config.rpcUrl}"`, 'INVALID_CONFIG');
+      }
+    }
+
+    if (config.horizonUrl) {
+      try {
+        new URL(config.horizonUrl);
+      } catch {
+        throw new TrustFlowError(`Invalid horizonUrl: "${config.horizonUrl}"`, 'INVALID_CONFIG');
+      }
+    }
+
     this.network = config.network ?? DEFAULT_NETWORK;
     this.contractId = config.contractId;
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
+    this.horizonUrl = config.horizonUrl ?? HORIZON_URLS[this.network];
+    this.networkPassphrase = config.networkPassphrase ?? NETWORK_PASSPHRASES[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
+    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
     this.retryConfig = config.ipfs ? { ...config.retry, ...config.ipfs.retry } : config.retry;
     this.storage = new IPFSStorage(config.ipfs);
     this.balanceCache = config.balanceCache
       ? new SimpleCache(config.balanceCache.ttlMs ?? DEFAULT_BALANCE_CACHE_TTL_MS)
       : undefined;
 
-    this.server = new Horizon.Server(HORIZON_URLS[this.network]);
+    this.server = config.horizonServer ?? new Horizon.Server(this.horizonUrl);
+    this.sorobanServer = config.rpcServer;
+    this.logger = logger;
     this.accounts = new AccountManager();
     for (const account of config.accounts ?? []) {
       this.accounts.add(account);
@@ -348,6 +370,13 @@ export class TrustFlowClient {
     return this._connected;
   }
 
+  async verifyApiCompatibility(): Promise<{ compatible: boolean; serverVersion: string; clientVersion: string }> {
+    if (!this.apiBaseUrl) {
+      return { compatible: true, serverVersion: 'N/A', clientVersion: this.apiVersion };
+    }
+    return verifyApiCompatibility(this.apiBaseUrl, this.apiVersion);
+  }
+
   // ---------------------------------------------------------------------------
   // Balances
   // ---------------------------------------------------------------------------
@@ -374,6 +403,7 @@ export class TrustFlowClient {
    * ```
    */
   async getBalance(address: string, options: GetBalanceOptions = {}): Promise<string> {
+    assertStellarAddress(address, 'address');
     const cacheKey = this.balanceCacheKey(address, options.account);
     if (!options.skipCache) {
       const cachedBalance = this.balanceCache?.get(cacheKey);
@@ -425,7 +455,7 @@ export class TrustFlowClient {
     const account = this.accounts.require(options.account);
     try {
       return await withTransientRetry(
-        () => fetchAccountInfo(account.address, this.network, this.retryConfig),
+        () => fetchAccountInfo(account.address, this.network, this.retryConfig, this.horizonUrl),
         undefined,
         this.retryConfig,
         'horizon.accountInfo',
@@ -529,9 +559,7 @@ export class TrustFlowClient {
    * @returns Network passphrase string
    */
   getNetworkPassphrase(): string {
-    // Reads the same canonical source as HORIZON_URLS / SOROBAN_RPC_URLS
-    // (NETWORK_CONFIGS via constants) rather than a third inline copy (#109).
-    return NETWORK_PASSPHRASES[this.network];
+    return this.networkPassphrase;
   }
 
   /**
@@ -608,6 +636,8 @@ export class TrustFlowClient {
     network: Network;
     contractId: string;
     rpcUrl: string;
+    horizonUrl: string;
+    networkPassphrase: string;
     apiConfigured: boolean;
     version: string;
     activeAccount: string | null;
@@ -618,6 +648,8 @@ export class TrustFlowClient {
       network: this.network,
       contractId: this.contractId,
       rpcUrl: this.rpcUrl,
+      horizonUrl: this.horizonUrl,
+      networkPassphrase: this.networkPassphrase,
       apiConfigured: Boolean(this.apiBaseUrl && this.apiKey),
       version: this.version,
       activeAccount: this.accounts.active?.address ?? null,

@@ -1,6 +1,6 @@
 import { ContractConfig } from '../types/contract';
 import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '../types/index';
-import { assertStellarAddress, isValidEscrowId, xlmToStroops } from '../utils/validation';
+import { assertStellarAddress, isValidEscrowId, xlmToStroops, STELLAR_ADDRESS_RE, CONTRACT_ID_RE } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 import type { ApiRetryConfig } from '../utils/http';
 import type { HttpInterceptors } from '../utils/interceptors';
@@ -218,6 +218,9 @@ export class TrustFlowEscrowClient {
     escrowId: string,
     releaserAddress: string,
   ): Promise<SDKResult<{ txHash: string }>> {
+    if (!isValidEscrowId(escrowId)) {
+      return { ok: false, error: 'escrowId is required' };
+    }
     assertStellarAddress(releaserAddress, 'releaserAddress');
     return { ok: true, data: { txHash: `release-${escrowId}-${Date.now()}` } };
   }
@@ -229,6 +232,9 @@ export class TrustFlowEscrowClient {
    * @returns `{ ok: true, data: EscrowState | null }` — `null` when the escrow does not exist
    */
   async getEscrow(_escrowId: string): Promise<SDKResult<EscrowState | null>> {
+    if (!isValidEscrowId(_escrowId)) {
+      return { ok: false, error: 'escrowId is required' };
+    }
     return { ok: true, data: null }; // Fetch from contract storage
   }
 
@@ -279,17 +285,60 @@ export class TrustFlowEscrowClient {
     if (params.cursor) {
       query.set('cursor', params.cursor);
     }
-    if (params.limit) {
+    if (params.limit !== undefined) {
+      if (!Number.isInteger(params.limit) || params.limit <= 0) {
+        return { ok: false, error: 'limit must be a positive integer' };
+      }
       query.set('limit', String(Math.min(params.limit, 100)));
     }
     if (params.status) {
-      query.set('status', params.status);
+      query.set('status', params.status.toLowerCase());
     }
     if (params.depositor) {
+      if (!STELLAR_ADDRESS_RE.test(params.depositor)) {
+        return { ok: false, error: `Invalid depositor address: "${params.depositor}"` };
+      }
       query.set('depositor', params.depositor);
     }
     if (params.beneficiary) {
+      if (!STELLAR_ADDRESS_RE.test(params.beneficiary)) {
+        return { ok: false, error: `Invalid beneficiary address: "${params.beneficiary}"` };
+      }
       query.set('beneficiary', params.beneficiary);
+    }
+    if (params.tokenAddress) {
+      if (!STELLAR_ADDRESS_RE.test(params.tokenAddress) && !CONTRACT_ID_RE.test(params.tokenAddress)) {
+        return { ok: false, error: `Invalid tokenAddress: "${params.tokenAddress}"` };
+      }
+      query.set('tokenAddress', params.tokenAddress);
+    }
+    if (params.createdAfter !== undefined) {
+      const dateStr = params.createdAfter instanceof Date
+        ? params.createdAfter.toISOString()
+        : typeof params.createdAfter === 'number'
+          ? new Date(params.createdAfter).toISOString()
+          : String(params.createdAfter);
+      query.set('createdAfter', dateStr);
+    }
+    if (params.createdBefore !== undefined) {
+      const dateStr = params.createdBefore instanceof Date
+        ? params.createdBefore.toISOString()
+        : typeof params.createdBefore === 'number'
+          ? new Date(params.createdBefore).toISOString()
+          : String(params.createdBefore);
+      query.set('createdBefore', dateStr);
+    }
+    if (params.minAmount !== undefined) {
+      query.set('minAmount', String(params.minAmount));
+    }
+    if (params.maxAmount !== undefined) {
+      query.set('maxAmount', String(params.maxAmount));
+    }
+    if (params.sortBy) {
+      query.set('sortBy', params.sortBy);
+    }
+    if (params.sortOrder) {
+      query.set('sortOrder', params.sortOrder);
     }
 
     const http = createApiHttpClient({

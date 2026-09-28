@@ -61,6 +61,9 @@ jobs:
       - name: Build package
         run: npm run build
 
+      - name: Build documentation
+        run: npm run docs
+
       - name: Check build artifacts
         run: |
           test -f dist/index.js || exit 1
