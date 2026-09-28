@@ -4,9 +4,12 @@ import type { ContractCallResult } from '../types/contract';
 import type { AccountOptions } from '../accounts/types';
 import { TrustFlowError } from '../errors';
 import { withTransientRetry } from '../utils/node-retry';
+import { logger } from '../utils/logger';
 import type { ReadContractStateOptions } from './read';
 
 export type SignAndSubmitFn = (xdr: string) => Promise<string>;
+
+const invokeLogger = logger;
 
 /** Per-call account and retry overrides for {@link invokeContract}. */
 export interface InvokeContractOptions extends AccountOptions {

@@ -2,6 +2,7 @@ import { rpc, scValToNative } from '@stellar/stellar-sdk';
 import type { TrustFlowClient } from '../client';
 import { TrustFlowError } from '../errors';
 import { withTransientRetry } from '../utils/node-retry';
+import { logger } from '../utils/logger';
 import type { ReadContractStateOptions } from './read';
 
 export interface SimulationResult {

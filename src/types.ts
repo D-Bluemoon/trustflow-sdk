@@ -1,6 +1,7 @@
 import type { IPFSConfig } from './storage';
 import type { ApiRetryConfig } from './utils/http';
 import type { AddAccountInput } from './accounts/types';
+import type { LogLevel, Logger } from './utils/logger';
 
 export type Network = 'TESTNET' | 'MAINNET';
 
@@ -57,6 +58,8 @@ export interface ClientConfig {
    * ```
    */
   retry?: ApiRetryConfig;
+  /** Logging configuration for the SDK client. */
+  logging?: LoggingConfig;
   /**
    * Account contexts to register on construction. The first entry becomes the
    * active account; the rest are available immediately for per-call targeting

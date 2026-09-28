@@ -10,6 +10,7 @@ import type { TrustFlowClient } from '../client';
 import type { AccountOptions } from '../accounts/types';
 import { TrustFlowError } from '../errors';
 import { withTransientRetry } from '../utils/node-retry';
+import { logger } from '../utils/logger';
 
 export interface ReadContractStateOptions extends AccountOptions {
   /**
@@ -66,19 +67,20 @@ export async function readContractState(
     .setTimeout(30)
     .build();
 
-  const result = await withTransientRetry(
-    () => server.simulateTransaction(tx),
-    options.retry,
-    client.retryConfig,
-    'rpc.simulateTransaction',
-  );
-
-  if (rpc.Api.isSimulationError(result as any)) {
-    throw new TrustFlowError(
-      `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
-      'SIMULATION_ERROR',
+  try {
+    const result = await withTransientRetry(
+      () => server.simulateTransaction(tx),
+      options.retry,
+      client.retryConfig,
+      'rpc.simulateTransaction',
     );
-  }
+
+    if (rpc.Api.isSimulationError(result as any)) {
+      throw new TrustFlowError(
+        `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
+        'SIMULATION_ERROR',
+      );
+    }
 
     const retval = (result as any).result?.retval;
     logger.debug('Contract read succeeded', { method });

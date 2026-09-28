@@ -7,9 +7,7 @@ import {
   SDK_VERSION,
   DEFAULT_API_VERSION,
 } from './constants';
-import { RequestDeduplicator } from './utils/dedup';
-import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
-import { logger } from './utils/logger';
+import { SDKLogger } from './utils/logger';
 import { TrustFlowError } from './errors';
 import type { Network, ClientConfig, LoggingConfig } from './types';
 import { IPFSStorage } from './storage';
@@ -82,7 +80,6 @@ export class TrustFlowClient {
   private server: Horizon.Server;
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
-  private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
   private readonly logger: SDKLogger;
 
@@ -141,6 +138,7 @@ export class TrustFlowClient {
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
+    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
     this.retryConfig = config.ipfs ? { ...config.retry, ...config.ipfs.retry } : config.retry;
     this.storage = new IPFSStorage(config.ipfs);
     this.balanceCache = config.balanceCache
@@ -152,6 +150,35 @@ export class TrustFlowClient {
     for (const account of config.accounts ?? []) {
       this.accounts.add(account);
     }
+
+    // Initialize logger from config
+    this.logger = this.createLogger(config.logging);
+  }
+
+  private createLogger(logging?: LoggingConfig): SDKLogger {
+    if (logging?.logger) {
+      // Wrap custom logger in SDKLogger interface
+      const customLogger = logging.logger;
+      return new SDKLogger({
+        minLevel: 'silent',
+        logger: {
+          debug: (msg, ctx) => customLogger.debug(msg, ctx),
+          info: (msg, ctx) => customLogger.info(msg, ctx),
+          warn: (msg, ctx) => customLogger.warn(msg, ctx),
+          error: (msg, ctx) => customLogger.error(msg, ctx),
+        },
+      });
+    }
+    return new SDKLogger({
+      minLevel: logging?.level ?? 'error',
+      json: logging?.json,
+      prefix: 'TrustFlowClient',
+    });
+  }
+
+  /** Get the internal logger instance */
+  getLogger(): SDKLogger {
+    return this.logger;
   }
 
   // ---------------------------------------------------------------------------
