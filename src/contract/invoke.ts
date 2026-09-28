@@ -1,27 +1,46 @@
-import {
-  rpc,
-  Contract,
-  TransactionBuilder,
-  BASE_FEE,
-} from '@stellar/stellar-sdk';
+import { rpc, Contract, TransactionBuilder, BASE_FEE } from '@stellar/stellar-sdk';
 import type { TrustFlowClient } from '../client';
 import type { ContractCallResult } from '../types/contract';
+import type { AccountOptions } from '../accounts/types';
 import { TrustFlowError } from '../errors';
-import { logger } from '../utils/logger';
+import { withTransientRetry } from '../utils/node-retry';
+import type { ReadContractStateOptions } from './read';
 
 export type SignAndSubmitFn = (xdr: string) => Promise<string>;
 
-const invokeLogger = logger;
+/** Per-call account and retry overrides for {@link invokeContract}. */
+export interface InvokeContractOptions extends AccountOptions {
+  /**
+   * Overrides the client's retry budget for this call — `attempts` counts the
+   * total tries (so `attempts: 1` disables retries), and `maxDelayMs` caps each
+   * delay. See {@link import('../utils/retry').cappedExponentialBackoff}.
+   */
+  retry?: ReadContractStateOptions['retry'];
+}
 
 /**
- * Invokes a Soroban contract method and optionally signs/submits the transaction.
+ * Assembles, simulates and optionally signs+submits a contract call.
  *
- * @param client - TrustFlow client instance
+ * ### Retry behaviour
+ *
+ * `getAccount` and `simulateTransaction` are both retried on transient
+ * failures only (connection reset, timeout, `429`, `5xx`), with capped,
+ * jittered backoff. A simulation *error* response is the node's verdict and is
+ * never retried — the same envelope would fail identically. A thrown
+ * `getAccount` failure for a genuinely missing account is likewise retried once
+ * by the classifier's default (an unrecognised error from a transport is
+ * treated as a transport failure), then reported as
+ * `{ success: false }`, matching this function's existing contract of never
+ * throwing.
+ *
+ * @param client - Configured client, for the contract ID, network and retry budget
  * @param method - Contract method name
- * @param args - Method arguments
- * @param caller - Caller's Stellar address
- * @param signAndSubmit - Optional function to sign and submit the transaction XDR
- * @returns Contract call result with success status, return value, and optional tx hash
+ * @param args - Positional arguments, already encoded to `ScVal`s
+ * @param caller - `G...` address whose sequence number and sequence-locked
+ *   footprint back the transaction
+ * @param signAndSubmit - Optional callback to sign and broadcast the envelope
+ * @param options - Per-call account and retry overrides
+ * @returns The call outcome; never throws for expected failure modes
  */
 export async function invokeContract(
   client: TrustFlowClient,
@@ -29,14 +48,21 @@ export async function invokeContract(
   args: unknown[],
   caller: string,
   signAndSubmit?: SignAndSubmitFn,
+  options: InvokeContractOptions = {},
 ): Promise<ContractCallResult> {
+  client.resolveAccount(options.account);
   const server = client.getSorobanServer();
   const contract = new Contract(client.contractId);
 
   invokeLogger.debug('Invoking contract method', { method, caller, contractId: client.contractId, argsCount: args.length });
 
   try {
-    const account = await server.getAccount(caller);
+    const account = await withTransientRetry(
+      () => server.getAccount(caller),
+      options.retry,
+      client.retryConfig,
+      'rpc.getAccount',
+    );
     const operation = contract.call(method, ...(args as any[]));
 
     const tx = new TransactionBuilder(account, {
@@ -47,8 +73,12 @@ export async function invokeContract(
       .setTimeout(30)
       .build();
 
-    invokeLogger.debug('Simulating contract call', { method });
-    const simulation = await server.simulateTransaction(tx);
+    const simulation = await withTransientRetry(
+      () => server.simulateTransaction(tx),
+      options.retry,
+      client.retryConfig,
+      'rpc.simulateTransaction',
+    );
 
     if (rpc.Api.isSimulationError(simulation)) {
       invokeLogger.warn('Contract simulation failed', { method, error: simulation.error });

@@ -24,8 +24,8 @@ export type TrustFlowErrorCode =
   | 'TIMEOUT'
   | 'INVALID_CONTRACT_CALL'
   | 'CIRCUIT_BREAKER_OPEN'
-  | 'VERSION_MISMATCH'
-  | 'USER_REJECTED';
+  | 'ACCOUNT_NOT_FOUND'
+  | 'UNSUPPORTED_ENVIRONMENT';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
@@ -132,6 +132,21 @@ export class TrustFlowError extends Error {
       `Retries exhausted for ${stage} after ${attempts} attempt(s)`,
       'RETRY_EXHAUSTED',
       cause,
+    );
+  }
+
+  /**
+   * The requested account context is not registered, or no account is active
+   * and the call needed one. Only raised when a caller explicitly names an
+   * account — with no account configured, the SDK stays in its original
+   * single-account mode and never throws this.
+   */
+  static accountNotFound(ref?: string): TrustFlowError {
+    return new TrustFlowError(
+      ref
+        ? `No account context registered for "${ref}". Call client.accounts.add() first.`
+        : 'No account context is active. Call client.useAccount(id) or pass { account } explicitly.',
+      'ACCOUNT_NOT_FOUND',
     );
   }
 }

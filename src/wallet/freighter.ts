@@ -8,10 +8,7 @@ export interface FreighterWallet {
 interface FreighterWindow {
   freighter?: {
     getPublicKey(): Promise<string>;
-    signTransaction(
-      xdr: string,
-      opts: { network: string },
-    ): Promise<{ signedXDR: string }>;
+    signTransaction(xdr: string, opts: { network: string }): Promise<{ signedXDR: string }>;
     getNetwork(): Promise<string>;
   };
 }

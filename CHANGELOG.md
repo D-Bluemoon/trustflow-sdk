@@ -1,6 +1,169 @@
 # Changelog
 
 ## [Unreleased]
+
+### Multi-account support
+
+The client used to model exactly one active account, so a multi-user application had to
+construct a second client per identity — duplicating the Horizon connection, the Soroban RPC
+server, the balance cache and the retry budget. Accounts are now first-class:
+
+- `client.accounts` is an `AccountManager` holding any number of `AccountContext`s, each with an
+  `id`, a `G...` `address`, an optional `label`, an optional per-account `apiKey`, `roles`, and a
+  free-form `data` bag. Register them up front with `ClientConfig.accounts`, or later with
+  `client.addAccount()`.
+- `client.useAccount(id)` switches the active account with a single field write — no client is
+  rebuilt and no network connection is reopened — and `client.asAccount(id, fn)` scopes a block
+  of calls, restoring the previous selection even if `fn` throws. Lookups accept an id *or* a
+  `G...` address, and `client.onAccountChange(listener)` emits `added` / `updated` / `removed` /
+  `activated`.
+- Every account-scoped method accepts an optional `account` (id or address), so one call can
+  target a non-active account: `getBalance`, `getAccountInfo`, `getAuthHeaders`, `getSession`,
+  `setSession`, `clearSession`, `readContractState`, `simulateContractCall`, `invokeContract`, and
+  `TransactionPipeline.run({ account })`.
+- State is isolated per account: session tokens are namespaced by account id
+  (`saveSession`/`loadSession`/`clearSession` gained an optional `scope`), the opt-in balance cache
+  is keyed by account as well as address, a per-account `apiKey` overrides the client-wide key,
+  and the selected account is identified on backend requests via `X-TrustFlow-Account`.
+  `AccountManager.exportState()` / `importState()` round-trip the account set, versioned by
+  `ACCOUNT_SNAPSHOT_VERSION`.
+- New `TrustFlowErrorCode` values: `ACCOUNT_NOT_FOUND`, surfaced by
+  `TrustFlowError.accountNotFound(ref)`.
+- **Compatibility:** with no `accounts` configured the client behaves exactly as before — single
+  account, no context, and `resolveAccount()` returns `null` rather than throwing, so existing
+  integrations need no changes. An *explicitly named* account that is not registered does throw,
+  because that is always a caller bug. A runnable tour is `examples/multi-account.ts`
+  (`npm run examples:multi-account`).
+
+### WebCrypto feature detection and graceful failure
+
+A browser without `crypto.subtle` — Safari < 15.4, or any page served over plain `http://`,
+where the subtle interface is hidden because WebCrypto is restricted to secure contexts —
+crashed deep inside the Stellar SDK with a bare `ReferenceError` or a silently skipped signature.
+Now:
+
+- `src/utils/environment.ts` adds `detectFeatures()`, `detectRuntime()`, `hasWebCrypto()`,
+  `assertFeatureSupport()` and `assertWebCryptoSupport()`, plus the `FeatureSupport` /
+  `EnvironmentReport` / `RuntimeKind` types. All are pure: they never throw on import, never
+  install a polyfill, and are safe in SSR, a worker, or a test.
+- Missing required capabilities raise a `TrustFlowError` with the new `UNSUPPORTED_ENVIRONMENT`
+  code that names the missing API, explains the *insecure context* cause (the usual reason it
+  works on `localhost` and fails in staging), lists the supported browser versions, and links to
+  the new compatibility doc. Optional gaps (`fetch`, `localStorage`, `subtle-crypto`,
+  `text-encoder`) are reported without marking the environment unsupported, so a read-only
+  contract viewer is never blocked by a missing `localStorage`.
+- `client.getEnvironment()` and `client.assertCryptoSupport(feature)` expose the same report bound
+  to a client instance.
+- Browser compatibility, polyfill guidance (including the fact that a polyfill *cannot* fix an
+  insecure context), SSR caveats and a common-problems table are documented in
+  `docs/BROWSER_COMPATIBILITY.md`.
+
+### Bundler compatibility: no Node polyfills required
+
+`src/utils/connection-pool.ts` imported Node's `http`/`https` and was re-exported from the package
+root, so every browser consumer had to configure `resolve.fallback` before the SDK would build —
+and the `platform: 'neutral'` build failed outright with
+`Could not resolve "http"`. Fixed by splitting the module by environment:
+
+- `@trustflow/sdk/node` (new `src/node/index.ts` entry) owns `createHttpAgent`,
+  `createHttpsAgent` and `configureAxiosConnectionPool`. It is the only module graph in the
+  package that references `node:http` / `node:https`, and those specifiers are marked `external`
+  in `tsup.config.ts`. The root entry deliberately does not re-export it.
+- The root/`/utils` entry keeps the environment-agnostic half — `PoolConfig`, `PoolStats`, the new
+  structural `PooledAgent` type, `getHttpAgentStats`, `monitorPoolHealth`, `destroyPoolAgent` —
+  which works against any agent-shaped object and needs no Node types.
+- **Removed the `axios-retry` dependency.** It is CommonJS-only, and its
+  `import isRetryAllowed from 'is-retry-allowed'` breaks Rollup's strict-ESM output with
+  `"default" is not exported by ...`, forcing every Rollup consumer to add
+  `@rollup/plugin-commonjs`. `src/utils/http.ts` now installs an equivalent response interceptor
+  (`installApiRetryInterceptor`), which is also the only way to apply the method-idempotency gate,
+  the `Retry-After` hint and jitter exactly as documented. `axios` itself is already browser-safe.
+- **Fixed a real runtime bug**: `agent.keepSocketAlive = true` assigned a boolean over what is a
+  *method* on Node ≥ 19's `http.Agent`, which would have broken keep-alive. The property assignment
+  is gone; `keepAliveTimeoutMs` is now documented accurately as a server-side knob a client agent
+  does not apply.
+- **Fixed the build**: `src/utils/request-validation.ts` wrote through a read-only generic
+  (`truncated[key] = …`, TS2862), which failed the `dts` rollup and so produced a `dist/` with no
+  `.d.ts` files at all. `tsconfig.json` now declares `"types": ["node"]` so the `/node` entry's
+  `node:` imports type-check in both `tsc` and tsup's independent dts resolution.
+- Verified example projects and a regression check under `examples/bundlers/`: one shared entry
+  that touches every browser entry, a Webpack 5 config with no `resolve.fallback` /
+  `ProvidePlugin` / `node:` alias plus a `NoNodeBuiltinsPlugin` that turns a Node core module in the
+  browser bundle into a build failure, a Rollup config, an esbuild config, and
+  `npm run test:bundlers` (`examples/bundlers/verify-bundlers.mjs`) which builds all three and then
+  scans the output for Node built-in specifiers. `tests/bundler-compat.test.ts` asserts the same
+  invariant statically at the source level.
+- Rollup still needs `@rollup/plugin-commonjs` — required by `@stellar/stellar-sdk`, whose browser
+  build is UMD rather than ESM. That is not a polyfill and is documented as such.
+
+### Retry coverage and policy
+
+Horizon and Soroban RPC reads bypassed `axios-retry` and `TransactionPipeline`'s local
+`withRetry`, the raw-`fetch` helpers had no retry at all, and `retry()` had no way to say "this
+failure is not worth another attempt" — so the pipeline replayed deterministic failures such as
+simulation errors, node `ERROR` rejections and on-chain `FAILED` results, and `http.ts` retried
+non-idempotent `POST`s on `5xx`. The gap analysis is in the issue; the implementation:
+
+- `ClientConfig.retry` (an `ApiRetryConfig`: `retries`, `retryDelayMs`, `maxRetryDelayMs`,
+  `jitter`) configures **every** network call the client makes, reusing the existing shape rather
+  than introducing a third. `retries` counts extra attempts, so `retries: 0` disables retrying.
+  The same block is threaded through `DisputeClientOptions`, `ProfileClientOptions`, `IPFSConfig`,
+  `AuthRequestOptions` and `getGigs(params, options)`; `TrustFlowEscrowClient` takes it as a
+  constructor option.
+- `RetryOptions` gained `shouldRetry(error, attempt)` — returning `false` stops the loop and
+  rethrows that error unchanged — and `jitter`, which is `false` by default so existing callers
+  keep exactly their current delays. `DelayStrategy` now also receives the error, which is how a
+  caller lets a `Retry-After` header win over its own schedule
+  (`backoffHonouringRetryAfter`). `retry(fn, 3, delayMs)` is unchanged.
+- `src/utils/transient.ts` is the single classifier every retried call site shares:
+  `classifyFailure` / `isTransientError` / `markTransient` / `readRetryAfterMs` /
+  `parseRetryAfterMs`, with a `TransientFailureKind` of `network | timeout | throttled | server |
+  node-busy | deterministic | unknown`. It reads the HTTP status and `Retry-After` off a wrapped
+  `TrustFlowError`'s `cause` as well as the error itself, and re-classifies a `RETRY_EXHAUSTED`
+  wrapper from the failure it wraps.
+- `src/utils/node-retry.ts` adds `withTransientRetry(fn, options, retryConfig, label)` — the one
+  primitive behind every Horizon read, Soroban RPC call and raw-`fetch` helper — plus
+  `resolveNodeRetryPolicy` and `DEFAULT_NODE_RETRY_CONFIG` (2 retries, 300ms base, 5s cap).
+- Now wrapped: `TrustFlowClient.connect` and `getBalance`, `readContractState`,
+  `simulateContractCall`, `invokeContract` (`getAccount` and `simulateTransaction`),
+  `TransactionPipeline.assemble` / `simulate` / the confirmation poll (which now accepts
+  per-call `RetryPolicy`), `fetchAccountInfo` and `submitTransaction`. Simulation errors, node
+  `ERROR` and on-chain `FAILED` are not retried; `TRY_AGAIN_LATER` and a confirmation-poll timeout
+  are, because in both cases the node never accepted the envelope.
+- `fetchAccountInfo` no longer swallows every failure and reports `isActive: false` — a
+  two-second Horizon outage was indistinguishable from an unfunded account, so callers told users
+  to fund an account that already had money. A `404` still means `isActive: false`; anything else
+  throws `NOT_FOUND` or `CONNECTION_ERROR`. New `TrustFlowClient.getAccountInfo({ account? })`.
+- `http.ts` limits `429`/`408`/`5xx` and transport retries to idempotent methods
+  (`GET`/`HEAD`/`OPTIONS`/`PUT`/`DELETE`), honours `Retry-After` (capped by `maxRetryDelayMs`),
+  and adds equal jitter (`delay / 2 … delay`), so `POST`s such as `DisputeClient.raiseDispute` are
+  no longer replayed. A call can opt in with `{ trustflowRetry: true }`.
+- `submitTransaction` (a `POST`) retries only the genuinely ambiguous cases — transport error,
+  `429`, `408`, `5xx` — and never a Horizon response carrying result codes. The replayed envelope is
+  byte-identical, so a retry cannot double-spend.
+- **Composes with `HttpInterceptors`** (#323). `createApiHttpClient` accepts both `retry` and
+  `interceptors`, and registers the interceptor chain *before* the retry handler, so request hooks
+  run once per transport attempt (including retries) and response hooks observe the outcome the SDK
+  actually returns rather than every intermediate `5xx`. `retry` and `interceptors` are likewise
+  both accepted by `DisputeClientOptions`, `ProfileClientOptions`, `IPFSConfig`,
+  `AuthRequestOptions` and `getGigs` — on `getGigs`, an explicit `interceptors` wins over the
+  constructor option, which wins over `config.interceptors`.
+
+**Behaviour change to be aware of:** `TransactionPipeline` now returns the *specific* error for a
+terminal failure (`SIMULATION_ERROR`, `SUBMISSION_ERROR`) instead of wrapping it in
+`RETRY_EXHAUSTED`, which is now reserved for a stage that really was retried and really did run
+out of budget, with the last error as `cause`. Callers that matched on `RETRY_EXHAUSTED` should
+branch on the specific code instead — which is what `PipelineResult` was documented to enable. This
+also fixes #245: an on-chain `FAILED` result no longer re-sends the same signed transaction (its
+`it.failing` test is now a passing `it`).
+
+### Session storage is account-scoped
+
+`saveSession`, `loadSession` and `clearSession` gained an optional `scope`, so two accounts signed
+in on the same origin no longer overwrite each other's token. Omitting the scope keeps the legacy
+unscoped key, so sessions written by earlier SDK versions still load.
+
+## [Unreleased] — previous
 - The `@trustflow/sdk/react` entry is now emitted as a client module: `dist/hooks/index.js` and
   `dist/hooks/index.mjs` start with a `'use client'` directive. The entry exports hooks that call
   `useState`, `useEffect` and `useCallback`, so in the Next.js App Router importing it from a

@@ -239,8 +239,7 @@ export function generateTypeScriptBindings(
 
   for (const [fnName, fnSpec] of spec.functions.entries()) {
     const camelName = toCamelCase(fnName);
-    const returnType =
-      fnSpec.outputs.length > 0 ? mapScSpecTypeToTs(fnSpec.outputs[0]) : 'unknown';
+    const returnType = fnSpec.outputs.length > 0 ? mapScSpecTypeToTs(fnSpec.outputs[0]) : 'unknown';
 
     // Build args interface
     const argsTypeFields = fnSpec.inputs
@@ -256,14 +255,14 @@ export function generateTypeScriptBindings(
     lines.push(`    caller: string,`);
     lines.push(`    signAndSubmit?: SignAndSubmitFn,`);
     lines.push(`  ): Promise<ContractCallResult & { result?: ${returnType} }> {`);
-    lines.push(
-      `    return this.invoke<${returnType}>('${fnName}', args, caller, signAndSubmit);`,
-    );
+    lines.push(`    return this.invoke<${returnType}>('${fnName}', args, caller, signAndSubmit);`);
     lines.push(`  }`);
     lines.push('');
 
     // Read method
-    lines.push(`  async read${capitalize(camelName)}(args: ${argsParamType}): Promise<${returnType}> {`);
+    lines.push(
+      `  async read${capitalize(camelName)}(args: ${argsParamType}): Promise<${returnType}> {`,
+    );
     lines.push(`    return this.read<${returnType}>('${fnName}', args);`);
     lines.push(`  }`);
     lines.push('');

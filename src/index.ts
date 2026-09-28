@@ -15,6 +15,7 @@ export * from './types/multisig';
 export * from './types/juror';
 export * from './types/profile';
 export * from './constants';
+export * from './accounts';
 export * from './escrow';
 export * from './juror';
 export * from './profile';
@@ -28,11 +29,14 @@ export * from './utils/timezone';
 export * from './utils/request-validation';
 export * from './utils/connection-pool';
 export * from './utils/circuit-breaker';
-export * from './utils/logger';
+export * from './utils/environment';
+export * from './utils/transient';
+export * from './utils/retry';
 export * from './utils/interceptors';
 export * from './tx-pipeline';
 export * from './contract';
 export { TrustFlowClient } from './client';
+export type { GetBalanceOptions } from './client';
 export * from './errors';
 
 // Zod runtime validation schemas (#45) — re-exported by name rather than

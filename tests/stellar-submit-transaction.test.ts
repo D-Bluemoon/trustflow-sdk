@@ -74,12 +74,54 @@ describe('submitTransaction', () => {
     expect((err.cause as HorizonSubmissionErrorDetail).operationCodes).toEqual([]);
   });
 
-  it('throws a TrustFlowError with the HTTP status for an HTML 502', async () => {
+  it('retries an HTML 502 as a transient edge failure, then surfaces CONNECTION_ERROR', async () => {
     fetchMock.mockResolvedValue(respond(502, '<html>Bad Gateway</html>'));
-    const err = await catchError(submitTransaction('XDR', HORIZON));
-    expect(err.code).toBe('SUBMISSION_ERROR');
+    const err = await catchError(
+      submitTransaction('XDR', HORIZON, { retries: 1, retryDelayMs: 1, maxRetryDelayMs: 1 }),
+    );
+    // A 5xx means an edge proxy failed before Horizon reached a verdict, so it
+    // is retried; after the budget is spent the caller sees CONNECTION_ERROR.
+    expect(err.code).toBe('CONNECTION_ERROR');
     expect(err.message).toContain('502');
-    expect((err.cause as HorizonSubmissionErrorDetail).status).toBe(502);
+    expect((err.cause as { status?: number }).status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a Horizon 4xx that carries result codes', async () => {
+    fetchMock.mockResolvedValue(
+      respond(400, JSON.stringify({ extras: { result_codes: { transaction: 'tx_failed' } } })),
+    );
+    const err = await catchError(
+      submitTransaction('XDR', HORIZON, { retries: 3, retryDelayMs: 1, maxRetryDelayMs: 1 }),
+    );
+    expect(err.code).toBe('SUBMISSION_ERROR');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a transport failure and succeeds on the next attempt', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(
+        respond(200, JSON.stringify({ hash: 'abc', successful: true, ledger: 7 })),
+      );
+    await expect(
+      submitTransaction('XDR', HORIZON, { retries: 2, retryDelayMs: 1, maxRetryDelayMs: 1 }),
+    ).resolves.toEqual({ hash: 'abc', successful: true, ledger: 7 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('honours a Retry-After header on 429', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '0' } }))
+      .mockResolvedValueOnce(respond(200, JSON.stringify({ hash: 'abc', successful: true })));
+    await expect(
+      submitTransaction('XDR', HORIZON, {
+        retries: 2,
+        retryDelayMs: 50_000,
+        maxRetryDelayMs: 50_000,
+      }),
+    ).resolves.toMatchObject({ hash: 'abc' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('throws a TrustFlowError for an invalid JSON success body', async () => {

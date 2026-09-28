@@ -4,6 +4,7 @@ import { DisputeParams, SDKResult } from '../types/index';
 import { TrustFlowError } from '../errors';
 import { buildDisputeArgs } from '../contract/build';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import type { ApiRetryConfig } from '../utils/http';
 import type { HttpInterceptors } from '../utils/interceptors';
 import { logger } from '../utils/logger';
 
@@ -61,6 +62,16 @@ import type { ContractConfig } from '../types/contract';
 export interface DisputeClientOptions {
   /** Per-request timeout (ms) applied to backend dispute calls. */
   timeoutMs?: number;
+  /**
+   * Retry budget for backend calls. Defaults to 3 retries with a 250ms base
+   * delay and a 2s cap.
+   *
+   * Only transient failures are retried. `raiseDispute` is a `POST`, so it is
+   * **not** retried on `5xx` or a transport error by default — the backend may
+   * have created the dispute before the response was lost. `getDispute` is a
+   * `GET` and is retried.
+   */
+  retry?: ApiRetryConfig;
   /** Request/response interceptor hooks. Defaults to `config.interceptors`. */
   interceptors?: HttpInterceptors;
 }
@@ -92,10 +103,7 @@ export class DisputeClient {
    * @param options - Optional {@link DisputeClientOptions}
    * @throws {Error} If `apiBaseUrl` or `apiKey` is missing
    */
-  constructor(
-    config: ContractConfig,
-    options: DisputeClientOptions = {},
-  ) {
+  constructor(config: ContractConfig, options: DisputeClientOptions = {}) {
     if (!config.apiBaseUrl) {
       throw new Error('apiBaseUrl is required for DisputeClient');
     }
@@ -108,6 +116,7 @@ export class DisputeClient {
     this.http = createApiHttpClient({
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,
+      retry: options.retry,
       interceptors: options.interceptors ?? config.interceptors,
       additionalHeaders: {
         Authorization: `Bearer ${this.token}`,
@@ -118,11 +127,14 @@ export class DisputeClient {
   /**
    * Creates a dispute via the backend API.
    *
-   * Transient backend failures are automatically retried before returning an error.
+   * **Retry behaviour:** a `POST`, so a `429`/`5xx` or transport error is
+   * surfaced immediately rather than replayed — a retried create could file the
+   * dispute twice. Set `{ trustflowRetry: true }` on the underlying call (or use
+   * an idempotency-key-based endpoint) when replaying is safe.
    *
    * @param params - Dispute payload sent to `POST /disputes`
    * @returns An {@link SDKResult} carrying the new `disputeId`, or `ok: false`
-   * with an error message. Does not throw on backend failure.
+   *   with an error message. Does not throw on backend failure.
    *
    * @example
    * ```typescript
@@ -144,11 +156,13 @@ export class DisputeClient {
   /**
    * Retrieves dispute details from the backend API.
    *
-   * Transient backend failures are automatically retried before returning an error.
+   * **Retry behaviour:** a `GET`, so it is idempotent — `429`, `5xx` and
+   * transport errors are retried with capped, jittered backoff, honouring a
+   * `Retry-After` header when the backend sends one. `4xx` fails immediately.
    *
    * @param escrowId - Escrow whose dispute should be fetched
    * @returns An {@link SDKResult} carrying the dispute record, or `ok: false`
-   * with an error message. Does not throw on backend failure.
+   *   with an error message. Does not throw on backend failure.
    *
    * @example
    * ```typescript

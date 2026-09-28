@@ -128,7 +128,9 @@ export function truncateRequestBody<T extends Record<string, any>>(
     return body;
   }
 
-  const truncated = { ...body };
+  // Widened before mutation: `T` is only readable, so writing through it is a
+  // type error even though `truncated` is a fresh object we own.
+  const truncated: Record<string, any> = { ...body };
 
   for (const key of Object.keys(truncated)) {
     const value = truncated[key];
@@ -137,10 +139,10 @@ export function truncateRequestBody<T extends Record<string, any>>(
       size = getJsonSizeBytes(truncated);
 
       if (size <= maxSize) {
-        return truncated;
+        return truncated as T;
       }
     }
   }
 
-  return truncated;
+  return truncated as T;
 }

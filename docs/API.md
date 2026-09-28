@@ -447,11 +447,108 @@ if (!result.success) {
 }
 ```
 
-## Backend API Retry Behavior
-- Backend API endpoints now use a shared Axios transport configured with `axios-retry`.
-- Default retry policy: 3 retries, exponential backoff (250ms base, 2000ms max cap).
-- Retry conditions: network errors, HTTP `429`, and HTTP `5xx` responses.
-- Non-transient `4xx` responses are returned without retry.
+## Retry Behavior
+
+Every network call the SDK makes goes through one policy: **retry transient failures, never
+deterministic ones.** See `docs/BROWSER_COMPATIBILITY.md` for browser notes and
+[`classifyFailure`](#retry-classification) for the rules.
+
+### Configuration
+
+One `ApiRetryConfig` block configures all of them — Horizon reads, Soroban RPC calls, the
+raw-`fetch` helpers, and the backend/IPFS HTTP clients:
+
+```typescript
+const client = new TrustFlowClient({
+  contractId,
+  retry: { retries: 4, retryDelayMs: 500, maxRetryDelayMs: 10_000, jitter: true },
+});
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `retries` | `3` | Retry attempts **after** the first, so `retries: 0` disables retrying |
+| `retryDelayMs` | `250` | Base delay before the first retry |
+| `maxRetryDelayMs` | `2000` | Cap on any single delay |
+| `jitter` | `true` | Equal jitter — each delay lands in `[delay / 2, delay]` |
+
+The same block is accepted by `DisputeClientOptions`, `ProfileClientOptions`, `IPFSConfig`,
+`AuthRequestOptions`, `TrustFlowEscrowClient`'s constructor, and `getGigs(params, options)`.
+A `Retry-After` header on a `429` overrides the backoff schedule, still capped by
+`maxRetryDelayMs`.
+
+Horizon/Soroban defaults come from `DEFAULT_NODE_RETRY_CONFIG` (2 retries, 300ms base, 5s cap) —
+deliberately shorter than the backend default, so a degraded network surfaces quickly instead of
+stalling a UI.
+
+### Retry classification
+
+`classifyFailure(error)` returns `{ kind, transient, status?, retryAfterMs?, reason }`, where
+`kind` is one of `network | timeout | throttled | server | node-busy | deterministic | unknown`.
+
+| Failure | Retried? |
+|---|---|
+| Transport error (`ECONNRESET`, DNS, TLS, offline), `fetch` rejection | Yes |
+| Timeout (`ETIMEDOUT`, `ECONNABORTED`, `AbortError`) | Yes |
+| `408`, `429`, `5xx` | Yes (idempotent methods only — see below) |
+| Soroban `TRY_AGAIN_LATER` / `tx_too_early` | Yes |
+| Other `4xx` | No |
+| `SIMULATION_ERROR` (`Error(Contract, #n)`) | No |
+| Node `ERROR` rejection, on-chain `FAILED` | No |
+| Confirmation-poll timeout | Yes — the node never rejected the envelope |
+
+An unrecognised error is treated as transient (`kind: 'unknown'`): every retried call site awaits
+an HTTP or RPC transport, so a raw `throw` from one is a transport failure unless it carried a
+protocol-level signal. `markTransient(error, bool)` overrides the heuristic for call sites that
+know better — the pipeline uses it to mark `TRY_AGAIN_LATER` and poll timeouts as retryable while
+leaving node rejections terminal.
+
+### Idempotency
+
+Non-idempotent requests are **not** replayed by default. A `POST` on `5xx`, or on a transport
+error, is returned to the caller, because the server may have processed the request before the
+response was lost — so `DisputeClient.raiseDispute`, `IPFSStorage.upload` and
+`verifyAndGetToken` are never retried. Opt a specific call in when replaying is safe:
+
+```typescript
+await http.post('/disputes', payload, { trustflowRetry: true });
+```
+
+`GET`, `HEAD`, `OPTIONS`, `PUT` and `DELETE` are retried. `submitTransaction` is a `POST`, so it
+retries only the genuinely ambiguous cases (transport error, `408`, `429`, `5xx`) and never a
+Horizon response carrying result codes; the replayed envelope is byte-identical, so a retry cannot
+double-spend.
+
+### Pipeline errors
+
+`TransactionPipeline` returns the **specific** error for a terminal failure, and reserves
+`RETRY_EXHAUSTED` for a stage that really was retried and really did run out of budget (with the
+last error as `cause`):
+
+```typescript
+const result = await pipeline.run(params);
+if (!result.ok) {
+  switch (result.error.code) {
+    case 'SIMULATION_ERROR': /* the contract rejected the call; do not retry */ break;
+    case 'SUBMISSION_ERROR': /* node ERROR or on-chain FAILED */ break;
+    case 'RETRY_EXHAUSTED':  /* transient failures exhausted the budget */ break;
+  }
+}
+```
+
+### Generic helper
+
+```typescript
+import { retry, cappedExponentialBackoff, isTransientError } from '@trustflow/sdk';
+
+await retry(attempt => doWork(attempt), {
+  attempts: 4,
+  delayMs: cappedExponentialBackoff(300, 5_000),
+  shouldRetry: isTransientError,   // omit to retry every failure (the default)
+  jitter: true,
+  onRetry: (attempt, error, info) => log(attempt, error, info),
+});
+```
 
 ## TransactionPipeline
 Unified pipeline for assembling, simulating, fee-adjusting, fee-bumping, and retrying

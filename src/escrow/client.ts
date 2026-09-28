@@ -2,7 +2,43 @@ import { ContractConfig } from '../types/contract';
 import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '../types/index';
 import { assertStellarAddress, isValidEscrowId, xlmToStroops } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import type { ApiRetryConfig } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { buildCreateEscrowArgs, buildClaimArgs, buildFundArgs } from '../contract/build';
+
+/** Per-call transport overrides for {@link TrustFlowEscrowClient.getGigs}. */
+export interface GetGigsOptions {
+  /** Per-request timeout in milliseconds. */
+  timeoutMs?: number;
+  /**
+   * Retry budget for the listing call, overriding the client-wide default.
+   * Only transient failures (`429`, `5xx`, transport errors) are retried;
+   * `getGigs` is a `GET`, so every retried request is idempotent.
+   */
+  retry?: ApiRetryConfig;
+  /**
+   * Request/response interceptor hooks for this call. Falls back to the
+   * constructor option, then to `config.interceptors`.
+   */
+  interceptors?: HttpInterceptors;
+}
+
+/** Constructor options for {@link TrustFlowEscrowClient}. */
+export interface TrustFlowEscrowClientOptions {
+  /** Per-request timeout in milliseconds for backend calls. */
+  timeoutMs?: number;
+  /**
+   * Default retry budget for backend calls, used when a per-call
+   * `getGigs({ retry })` is not supplied. Only transient failures are retried,
+   * and only for idempotent methods.
+   */
+  retry?: ApiRetryConfig;
+  /**
+   * Default request/response interceptor hooks for backend calls. Falls back to
+   * `config.interceptors`.
+   */
+  interceptors?: HttpInterceptors;
+}
 
 /**
  * High-level client for TrustFlow escrow operations.
@@ -20,9 +56,15 @@ import { buildCreateEscrowArgs, buildClaimArgs, buildFundArgs } from '../contrac
  */
 export class TrustFlowEscrowClient {
   protected readonly contractConfig: ContractConfig;
+  private readonly timeoutMs?: number;
+  private readonly retry?: ApiRetryConfig;
+  private readonly interceptors?: HttpInterceptors;
 
-  constructor(config: ContractConfig) {
+  constructor(config: ContractConfig, options: TrustFlowEscrowClientOptions = {}) {
     this.contractConfig = config;
+    this.timeoutMs = options.timeoutMs;
+    this.retry = options.retry;
+    this.interceptors = options.interceptors;
   }
 
   /**
@@ -199,7 +241,9 @@ export class TrustFlowEscrowClient {
    * the last page.
    *
    * Network calls automatically retry transient backend failures (`429`, `5xx`,
-   * and short-lived network errors) using exponential backoff.
+   * and short-lived network errors) using capped, jittered exponential backoff,
+   * honouring a `Retry-After` header when the backend sends one. `4xx` fails
+   * immediately. `getGigs` is a `GET`, so every retried request is idempotent.
    *
    * @param params - Optional filter and pagination parameters
    * @param params.cursor - Opaque cursor from a previous response; omit to start from the first page
@@ -207,6 +251,8 @@ export class TrustFlowEscrowClient {
    * @param params.status - Filter by escrow status
    * @param params.depositor - Filter by depositor address
    * @param params.beneficiary - Filter by beneficiary address
+   * @param options - Per-call `timeoutMs`, `retry` budget and `interceptors`,
+   *   overriding the client-wide defaults
    *
    * @returns `{ ok: true, data: GigsPage }` on success, `{ ok: false, error }` on failure
    *
@@ -221,7 +267,10 @@ export class TrustFlowEscrowClient {
    * } while (cursor);
    * ```
    */
-  async getGigs(params: GetGigsParams = {}): Promise<SDKResult<GigsPage>> {
+  async getGigs(
+    params: GetGigsParams = {},
+    options: GetGigsOptions = {},
+  ): Promise<SDKResult<GigsPage>> {
     if (!this.contractConfig.apiBaseUrl) {
       return { ok: false, error: 'apiBaseUrl is required to call getGigs' };
     }
@@ -246,7 +295,11 @@ export class TrustFlowEscrowClient {
     const http = createApiHttpClient({
       baseURL: this.contractConfig.apiBaseUrl,
       apiKey: this.contractConfig.apiKey,
-      interceptors: this.contractConfig.interceptors,
+      timeoutMs: options.timeoutMs ?? this.timeoutMs,
+      retry: options.retry ?? this.retry,
+      // Per-call overrides win, then the constructor option, then the
+      // contract-wide hooks.
+      interceptors: options.interceptors ?? this.interceptors ?? this.contractConfig.interceptors,
     });
 
     try {

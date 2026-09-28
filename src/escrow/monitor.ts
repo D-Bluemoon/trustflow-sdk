@@ -27,10 +27,7 @@ export interface EscrowMonitorErrorContext {
  * handler fails. Consumers that register this callback can react to otherwise
  * silently-discarded errors.
  */
-export type EscrowMonitorOnError = (
-  error: unknown,
-  context: EscrowMonitorErrorContext
-) => void;
+export type EscrowMonitorOnError = (error: unknown, context: EscrowMonitorErrorContext) => void;
 
 /** Info passed to `onReconnect` after polling recovers from failures. */
 export interface MonitorReconnectInfo {
@@ -178,10 +175,7 @@ export class EscrowMonitor {
     }
   }
 
-  startPolling(
-    intervalMs = 5000,
-    fetchFn: () => Promise<ParsedTrustFlowEvent[]>
-  ): void {
+  startPolling(intervalMs = 5000, fetchFn: () => Promise<ParsedTrustFlowEvent[]>): void {
     this.pollingInterval = setInterval(async () => {
       let events: ParsedTrustFlowEvent[];
       try {

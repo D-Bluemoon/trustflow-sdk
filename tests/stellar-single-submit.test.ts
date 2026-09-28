@@ -27,9 +27,14 @@ describe('src/stellar submitTransaction (#110)', () => {
     expect(fs.existsSync(path.join(stellarDir, 'horizon.ts'))).toBe(false);
   });
 
-  it('the surviving implementation is (xdr, horizonUrl) and is the one on the barrel', () => {
+  it('the surviving implementation takes (xdr, horizonUrl, retry?) and is the one on the barrel', () => {
     expect(typeof submitTransaction).toBe('function');
-    expect(submitTransaction).toHaveLength(2);
+    // `(xdr, horizonUrl)` are still the first two required parameters; the
+    // optional third is the ApiRetryConfig retry budget.
+    const signature = fs.readFileSync(path.join(stellarDir, 'transaction.ts'), 'utf8');
+    expect(signature).toMatch(
+      /export async function submitTransaction\(\s*xdr: string,\s*horizonUrl: string,\s*retry\?: ApiRetryConfig,?\s*\)/,
+    );
     expect((stellarBarrel as { submitTransaction?: unknown }).submitTransaction).toBe(
       submitTransaction,
     );
