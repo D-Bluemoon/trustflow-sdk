@@ -1,3 +1,5 @@
+import type { HttpInterceptors } from '../utils/interceptors';
+
 export interface ContractConfig {
   contractId: string;
   network: 'TESTNET' | 'MAINNET';
@@ -5,6 +7,8 @@ export interface ContractConfig {
   networkPassphrase: string;
   apiBaseUrl?: string;
   apiKey?: string;
+  /** Request/response interceptor hooks applied to backend API calls. */
+  interceptors?: HttpInterceptors;
 }
 
 export interface InvokeContractParams {

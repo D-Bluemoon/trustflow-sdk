@@ -2,6 +2,7 @@ import type { SDKResult } from '../types/index';
 import type { AxiosInstance } from 'axios';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 import { logger } from '../utils/logger';
+import type { HttpInterceptors } from '../utils/interceptors';
 
 /** Default upload endpoint — a raw-body IPFS upload API (e.g. web3.storage-compatible). */
 const DEFAULT_IPFS_API_URL = 'https://api.web3.storage/upload';
@@ -17,6 +18,8 @@ export interface IPFSConfig {
   gatewayUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30s. */
   timeoutMs?: number;
+  /** Request/response interceptor hooks applied to upload calls. */
+  interceptors?: HttpInterceptors;
 }
 
 export interface IPFSUploadOptions {
@@ -57,6 +60,7 @@ export class IPFSStorage {
       baseURL: config.apiUrl ?? DEFAULT_IPFS_API_URL,
       apiKey: config.apiKey,
       timeoutMs: config.timeoutMs,
+      interceptors: config.interceptors,
     });
   }
 

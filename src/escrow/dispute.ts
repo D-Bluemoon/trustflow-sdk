@@ -4,6 +4,7 @@ import { DisputeParams, SDKResult } from '../types/index';
 import { TrustFlowError } from '../errors';
 import { buildDisputeArgs } from '../contract/build';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { logger } from '../utils/logger';
 
 /**
@@ -60,6 +61,8 @@ import type { ContractConfig } from '../types/contract';
 export interface DisputeClientOptions {
   /** Per-request timeout (ms) applied to backend dispute calls. */
   timeoutMs?: number;
+  /** Request/response interceptor hooks. Defaults to `config.interceptors`. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -105,6 +108,7 @@ export class DisputeClient {
     this.http = createApiHttpClient({
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,
+      interceptors: options.interceptors ?? config.interceptors,
       additionalHeaders: {
         Authorization: `Bearer ${this.token}`,
       },

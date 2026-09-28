@@ -246,6 +246,7 @@ export class TrustFlowEscrowClient {
     const http = createApiHttpClient({
       baseURL: this.contractConfig.apiBaseUrl,
       apiKey: this.contractConfig.apiKey,
+      interceptors: this.contractConfig.interceptors,
     });
 
     try {

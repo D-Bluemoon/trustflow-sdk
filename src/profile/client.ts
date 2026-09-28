@@ -2,9 +2,12 @@ import type { SDKResult } from '../types/index';
 import type { Profile, UpdateProfileParams } from '../types/profile';
 import { isValidStellarAddress } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 
 export interface ProfileClientOptions {
   timeoutMs?: number;
+  /** Request/response interceptor hooks applied to profile API calls. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -28,6 +31,7 @@ export class ProfileClient {
     this.http = createApiHttpClient({
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,
+      interceptors: options.interceptors,
       additionalHeaders: {
         Authorization: `Bearer ${this.token}`,
       },
