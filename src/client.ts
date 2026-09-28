@@ -11,7 +11,7 @@ import { RequestDeduplicator } from './utils/dedup';
 import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
 import { logger } from './utils/logger';
 import { TrustFlowError } from './errors';
-import type { Network, ClientConfig } from './types';
+import type { Network, ClientConfig, LoggingConfig } from './types';
 import { IPFSStorage } from './storage';
 import { SimpleCache } from './utils/cache';
 import { AccountManager } from './accounts/manager';
@@ -84,6 +84,7 @@ export class TrustFlowClient {
   private readonly balanceCache?: SimpleCache<string, string>;
   private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
+  private readonly logger: SDKLogger;
 
   readonly network: Network;
   readonly contractId: string;
@@ -121,7 +122,8 @@ export class TrustFlowClient {
    *   contractId: process.env.CONTRACT_ID!,
    *   network: 'TESTNET',
    *   apiBaseUrl: 'https://api.trustflow.xyz',
-   *   apiKey: process.env.API_KEY
+   *   apiKey: process.env.API_KEY,
+   *   logging: { level: 'debug' }
    * });
    * await client.connect();
    *
@@ -319,6 +321,7 @@ export class TrustFlowClient {
    * ```
    */
   async connect(): Promise<void> {
+    this.logger.debug('Connecting to Stellar network', { network: this.network, rpcUrl: this.rpcUrl });
     try {
       // Test connection by fetching ledger info
       await withTransientRetry(
@@ -328,8 +331,10 @@ export class TrustFlowClient {
         'horizon.ledgers',
       );
       this._connected = true;
+      this.logger.info('Connected to Stellar network', { network: this.network });
     } catch (error) {
       this._connected = false;
+      this.logger.error('Failed to connect to Stellar network', { network: this.network, error });
       throw new TrustFlowError('Failed to connect to Stellar network', 'CONNECTION_ERROR', error);
     }
   }

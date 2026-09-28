@@ -244,6 +244,44 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
 
   installApiRetryInterceptor(instance, retryConfig);
 
+  // Request/response logging interceptors (optional-chained so unit tests
+  // that mock `axios.create` without interceptors keep working).
+  instance.interceptors?.request?.use(
+    (config) => {
+      httpLogger.debug('HTTP request', {
+        method: config.method?.toUpperCase(),
+        url: config.url,
+        baseURL: config.baseURL,
+      });
+      return config;
+    },
+    (error) => {
+      httpLogger.error('HTTP request error', { error: error.message });
+      return Promise.reject(error);
+    }
+  );
+
+  instance.interceptors?.response?.use(
+    (response) => {
+      httpLogger.debug('HTTP response', {
+        status: response.status,
+        url: response.config.url,
+        baseURL: response.config.baseURL,
+      });
+      return response;
+    },
+    (error) => {
+      const status = error.response?.status;
+      httpLogger.warn('HTTP error response', {
+        status,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        message: error.message,
+      });
+      return Promise.reject(error);
+    }
+  );
+
   return instance;
 }
 

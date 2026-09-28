@@ -1,5 +1,6 @@
 import { Transaction, xdr } from '@stellar/stellar-sdk';
 import { TrustFlowError } from '../errors';
+import { logger } from '../utils/logger';
 import type { ContractConfig } from '../types/contract';
 import type {
   InitMultiSigParams,
@@ -91,6 +92,7 @@ export class MultiSigEscrowClient {
     };
 
     this.operations.set(operationId, operation);
+    logger.debug('Multi-sig operation initialized', { operationId, escrowId: params.escrowId });
     return { ok: true, data: { operationId } };
   }
 
@@ -145,6 +147,12 @@ export class MultiSigEscrowClient {
       addedAt: Date.now(),
     };
     operation.collectedSignatures.push(entry);
+    logger.debug('Multi-sig signature added', {
+      operationId: params.operationId,
+      signer: params.signerAddress,
+      collected: operation.collectedSignatures.length,
+      threshold: operation.threshold,
+    });
 
     if (operation.collectedSignatures.length >= operation.threshold) {
       operation.status = 'ready';
@@ -205,8 +213,10 @@ export class MultiSigEscrowClient {
     }
 
     try {
+      logger.debug('Submitting multi-sig operation', { operationId });
       const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl);
       this._markTerminal(operation, 'submitted');
+      logger.info('Multi-sig operation submitted', { operationId, txHash: submitted.hash });
       return {
         ok: true,
         data: {
@@ -216,6 +226,7 @@ export class MultiSigEscrowClient {
         },
       };
     } catch (e) {
+      logger.error('Multi-sig submission failed', { operationId, error: String(e) });
       return { ok: false, error: `Submission failed: ${String(e)}` };
     }
   }

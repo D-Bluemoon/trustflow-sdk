@@ -1,5 +1,8 @@
 import type { ParsedTrustFlowEvent, EventHandler } from '../types/events';
+import type { CursorStore, RawContractEvent } from '../events';
+import { InMemoryCursorStore, parseEvents } from '../events';
 import { logger } from '../utils/logger';
+import { retry } from '../utils/retry';
 
 /**
  * The phase in which a polling error occurred.
@@ -26,6 +29,51 @@ export interface EscrowMonitorErrorContext {
  */
 export type EscrowMonitorOnError = (error: unknown, context: EscrowMonitorErrorContext) => void;
 
+/** Info passed to `onReconnect` after polling recovers from failures. */
+export interface MonitorReconnectInfo {
+  /** Cursor polling resumed from. */
+  cursor?: string;
+  /** Number of consecutive failures before recovery. */
+  failures: number;
+}
+
+/** Describes a potential gap in event coverage. */
+export interface MonitorGapInfo {
+  /** Human-readable cause: ledger jump or expired cursor. */
+  reason: 'ledger-discontinuity' | 'cursor-expired' | 'unknown';
+  /** Last ledger successfully processed before the gap (if known). */
+  fromLedger?: number;
+  /** First ledger seen after the gap (if known). */
+  toLedger?: number;
+  /** Cursor that could not be backfilled (for `cursor-expired`). */
+  cursor?: string;
+}
+
+export type EscrowMonitorOnReconnect = (info: MonitorReconnectInfo) => void;
+export type EscrowMonitorOnGap = (gap: MonitorGapInfo) => void;
+
+/** Options for {@link EscrowMonitor.startResilientPolling}. */
+export interface ResilientPollingOptions {
+  /** Pluggable cursor store (in-memory default). */
+  store?: CursorStore;
+  /** Max dedup keys retained (default 1000). */
+  dedupSize?: number;
+  /** Base backoff in ms after a failed poll (default 1000). */
+  baseBackoffMs?: number;
+  /** Max backoff in ms (default 30000). */
+  maxBackoffMs?: number;
+  /** Initial cursor when the store is empty. */
+  initialCursor?: string;
+}
+
+/**
+ * Cursor-aware fetch function for resilient polling. Receives the last saved
+ * cursor (or `undefined` on first poll) and returns parsed events.
+ */
+export type CursorAwareFetchFn = (
+  cursor?: string
+) => Promise<ParsedTrustFlowEvent[]>;
+
 /**
  * Subscribes handlers to parsed TrustFlow events and dispatches them.
  *
@@ -37,11 +85,29 @@ export type EscrowMonitorOnError = (error: unknown, context: EscrowMonitorErrorC
  *
  * Register {@link EscrowMonitor.onError} to observe fetch/handler failures
  * that are otherwise only surfaced through the SDK logger (#112).
+ *
+ * For production polling against Soroban RPC `getEvents`, prefer
+ * {@link EscrowMonitor.startResilientPolling}: it resumes from the last saved
+ * cursor after transient failures (exponential backoff), dedups across
+ * reconnects by `pagingToken`/`id`, and surfaces gaps via `onGapDetected`.
+ * Soroban RPC serves events through polling (no push WebSocket), so
+ * "reconnect" means resuming polling from the saved position. If the cursor
+ * is older than the RPC retention window it cannot be backfilled and is
+ * reported as a gap.
  */
 export class EscrowMonitor {
   private handlers = new Map<string, Set<EventHandler>>();
   private pollingInterval?: ReturnType<typeof setInterval>;
+  private resilientTimer?: ReturnType<typeof setTimeout>;
+  private resilientStopped = true;
   private errorCallback?: EscrowMonitorOnError;
+  private reconnectCallback?: EscrowMonitorOnReconnect;
+  private gapCallback?: EscrowMonitorOnGap;
+  private seenKeys: string[] = [];
+  private seenSet = new Set<string>();
+  private lastLedger?: number;
+  private lastCursor?: string;
+  private consecutiveFailures = 0;
 
   on(type: string, handler: EventHandler): this {
     if (!this.handlers.has(type)) {
@@ -68,6 +134,25 @@ export class EscrowMonitor {
    */
   onError(callback: EscrowMonitorOnError): this {
     this.errorCallback = callback;
+    return this;
+  }
+
+  /**
+   * Register a callback invoked when polling recovers after one or more
+   * failed polls (resilient polling only).
+   */
+  onReconnect(callback: EscrowMonitorOnReconnect): this {
+    this.reconnectCallback = callback;
+    return this;
+  }
+
+  /**
+   * Register a callback invoked when a potential coverage gap is detected:
+   * a ledger discontinuity between polls, or a cursor older than the RPC
+   * retention window that cannot be backfilled.
+   */
+  onGapDetected(callback: EscrowMonitorOnGap): this {
+    this.gapCallback = callback;
     return this;
   }
 
@@ -104,7 +189,169 @@ export class EscrowMonitor {
     }, intervalMs);
   }
 
+  /**
+   * Start cursor-aware resilient polling.
+   *
+   * Each tick calls `fetchFn` with the last saved cursor, dedups by
+   * `pagingToken`/`id` across resumes, persists the newest cursor, backs off
+   * exponentially after failures (reusing the shared `retry` helper for the
+   * fetch itself), and notifies `onReconnect` / `onGapDetected`.
+   *
+   * @param intervalMs - Base interval between successful polls
+   * @param fetchFn - Cursor-aware fetcher returning parsed events
+   * @param options - Cursor store, dedup size, backoff tuning
+   *
+   * @example
+   * ```ts
+   * const monitor = new EscrowMonitor();
+   * monitor.on('escrow_created', (e) => console.log(e.data.escrowId));
+   * monitor.onReconnect(({ failures }) => console.log(`reconnected after ${failures} failures`));
+   * monitor.onGapDetected((gap) => console.warn('possible missed events', gap));
+   * monitor.startResilientPolling(5000, async (cursor) => {
+   *   const page = await fetchContractEvents(server, { contractId, cursor });
+   *   return parseEvents(page.events, contractId);
+   * });
+   * ```
+   */
+  startResilientPolling(
+    intervalMs = 5000,
+    fetchFn: CursorAwareFetchFn,
+    options: ResilientPollingOptions = {},
+  ): void {
+    this.stopPolling();
+    this.resilientStopped = false;
+    const store = options.store ?? new InMemoryCursorStore(options.initialCursor);
+    const dedupSize = options.dedupSize ?? 1000;
+    const baseBackoffMs = options.baseBackoffMs ?? 1000;
+    const maxBackoffMs = options.maxBackoffMs ?? 30000;
+    this.consecutiveFailures = 0;
+
+    const remember = (key: string): void => {
+      if (this.seenSet.has(key)) return;
+      this.seenSet.add(key);
+      this.seenKeys.push(key);
+      if (this.seenKeys.length > dedupSize) {
+        const oldest = this.seenKeys.shift();
+        if (oldest) this.seenSet.delete(oldest);
+      }
+    };
+
+    const schedule = (delayMs: number): void => {
+      if (this.resilientStopped) return;
+      this.resilientTimer = setTimeout(tick, delayMs);
+    };
+
+    const tick = async (): Promise<void> => {
+      if (this.resilientStopped) return;
+      let cursor: string | undefined;
+      try {
+        cursor = (await store.get()) ?? this.lastCursor;
+      } catch (error) {
+        logger.error('Cursor store read failed', error);
+      }
+
+      let events: ParsedTrustFlowEvent[];
+      try {
+        // Reuse the shared retry helper: one immediate retry with
+        // exponential delay before the outer backoff loop takes over.
+        events = await retry(() => fetchFn(cursor), {
+          attempts: 2,
+          delayMs: (attempt) => Math.min(baseBackoffMs * 2 ** (attempt - 1), maxBackoffMs),
+        });
+      } catch (error) {
+        this.consecutiveFailures += 1;
+        logger.error('Resilient poll failed', { cursor, failures: this.consecutiveFailures });
+        this.errorCallback?.(error, { phase: 'fetch' });
+        if (isCursorExpiredError(error)) {
+          this.gapCallback?.({ reason: 'cursor-expired', cursor, fromLedger: this.lastLedger });
+        }
+        const backoff = Math.min(
+          baseBackoffMs * 2 ** (this.consecutiveFailures - 1),
+          maxBackoffMs,
+        );
+        schedule(intervalMs + backoff);
+        return;
+      }
+
+      if (this.consecutiveFailures > 0) {
+        this.reconnectCallback?.({ cursor, failures: this.consecutiveFailures });
+        logger.info('Event polling reconnected', { failures: this.consecutiveFailures });
+      }
+      this.consecutiveFailures = 0;
+
+      const fresh = events.filter((e) => {
+        const key = e.pagingToken || e.id;
+        if (this.seenSet.has(key)) return false;
+        return true;
+      });
+
+      if (fresh.length > 0 && this.lastLedger !== undefined) {
+        const minLedger = Math.min(...fresh.map((e) => e.ledger));
+        if (minLedger > this.lastLedger + 1) {
+          this.gapCallback?.({
+            reason: 'ledger-discontinuity',
+            fromLedger: this.lastLedger,
+            toLedger: minLedger,
+          });
+          logger.warn('Event ledger gap detected', { from: this.lastLedger, to: minLedger });
+        }
+      }
+
+      if (fresh.length > 0) {
+        this.deliver(fresh);
+        for (const e of fresh) remember(e.pagingToken || e.id);
+        this.lastLedger = Math.max(...fresh.map((e) => e.ledger), this.lastLedger ?? -Infinity);
+        const newest = fresh[fresh.length - 1];
+        const nextCursor = newest.pagingToken || newest.id;
+        this.lastCursor = nextCursor;
+        try {
+          await store.set(nextCursor);
+        } catch (error) {
+          logger.error('Cursor store write failed', error);
+        }
+        logger.debug('Resilient poll delivered events', {
+          count: fresh.length,
+          cursor: nextCursor,
+        });
+      }
+
+      schedule(intervalMs);
+    };
+
+    void tick();
+  }
+
+  /**
+   * Start resilient polling from a raw `getEvents`-style fetcher. Events are
+   * parsed with `parseEvents(raw, contractId)` before dedup/delivery, so
+   * `pagingToken` is preserved for cursor resumption.
+   */
+  startResilientRawPolling(
+    intervalMs: number,
+    contractId: string,
+    fetchRaw: (cursor?: string) => Promise<RawContractEvent[]>,
+    options: ResilientPollingOptions = {},
+  ): void {
+    this.startResilientPolling(
+      intervalMs,
+      async (cursor) => parseEvents(await fetchRaw(cursor), contractId),
+      options,
+    );
+  }
+
   stopPolling(): void {
     clearInterval(this.pollingInterval);
+    this.pollingInterval = undefined;
+    this.resilientStopped = true;
+    if (this.resilientTimer) {
+      clearTimeout(this.resilientTimer);
+      this.resilientTimer = undefined;
+    }
   }
+}
+
+/** Heuristic: RPC errors mentioning cursor/retention/expiry mean the saved position is gone. */
+function isCursorExpiredError(error: unknown): boolean {
+  const message = error instanceof Error ? `${error.message} ${(error as Error).cause ?? ''}` : String(error);
+  return /cursor|retention|expired|prun|behind|gap/i.test(message);
 }

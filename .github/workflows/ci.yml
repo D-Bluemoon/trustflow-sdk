@@ -100,6 +100,26 @@ jobs:
       - name: Run hook tests
         run: npx jest tests/hooks.test.ts tests/use-
 
+  browser:
+    name: Browser compat (jsdom)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run browser-safe suites under jsdom
+        run: npx jest tests/utils-extended.test.ts tests/logger.test.ts --env=jsdom
+
   e2e:
     name: End-to-end (local Stellar network)
     runs-on: ubuntu-latest

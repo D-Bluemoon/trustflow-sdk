@@ -23,6 +23,7 @@ import type {
   SubmitOptions,
   SubmittableTransaction,
 } from './types';
+import { logger } from '../utils/logger';
 
 const DEFAULT_RETRY_POLICY: Required<RetryPolicy> = {
   maxAttempts: 3,
@@ -106,6 +107,7 @@ async function withRetry<T>(
       // desynchronising many pipelines that fail at the same moment.
       jitter: true,
     });
+    logger.debug('Pipeline stage succeeded', { stage, attempts: maxAttempts });
     return ok(data);
   } catch (e) {
     if (!isTransient(e)) {
@@ -177,6 +179,7 @@ async function withRetry<T>(
  */
 export class TransactionPipeline {
   private readonly server: rpc.Server;
+  private readonly pipelineLogger = logger;
 
   constructor(private readonly client: TrustFlowClient) {
     this.server = new rpc.Server(client.rpcUrl, { allowHttp: Config.isAllowHttp() });
@@ -236,8 +239,10 @@ export class TransactionPipeline {
         builder.addMemo(params.memo);
       }
 
+      this.pipelineLogger.debug('Transaction assembled', { sourceAccount: params.sourceAccount });
       return ok(builder.build());
     } catch (e) {
+      this.pipelineLogger.error('Transaction assembly failed', { sourceAccount: params.sourceAccount, error: e });
       return fail(
         TrustFlowError.assemblyFailed(
           `could not assemble transaction for ${params.sourceAccount}`,
@@ -296,6 +301,7 @@ export class TransactionPipeline {
   async prepare(tx: Transaction, options?: PrepareOptions): Promise<PipelineResult<Transaction>> {
     const multiplier = options?.resourceFeeMultiplier ?? DEFAULT_RESOURCE_FEE_MULTIPLIER;
 
+    this.pipelineLogger.debug('Preparing transaction', { resourceFeeMultiplier: multiplier });
     return withRetry(
       async () => {
         const simulation = await this.server.simulateTransaction(tx);
@@ -308,6 +314,7 @@ export class TransactionPipeline {
         // onto the SorobanTransactionData builder for it to take effect.
         const paddedFee = Math.ceil(Number(simulation.minResourceFee) * multiplier).toString();
         simulation.transactionData.setResourceFee(paddedFee);
+        this.pipelineLogger.debug('Transaction prepared', { paddedFee, minResourceFee: simulation.minResourceFee });
 
         return rpc.assembleTransaction(tx, { ...simulation, minResourceFee: paddedFee }).build();
       },
@@ -324,6 +331,7 @@ export class TransactionPipeline {
    * @param options - Fee source and base fee for the fee-bump envelope
    */
   buildFeeBump(innerTx: Transaction, options: FeeBumpOptions): PipelineResult<FeeBumpTransaction> {
+    this.pipelineLogger.debug('Building fee-bump transaction', { feeSource: options.feeSource });
     try {
       const baseFee = options.baseFee ?? String(Number(BASE_FEE) * 10);
       const feeBump = TransactionBuilder.buildFeeBumpTransaction(
@@ -332,8 +340,10 @@ export class TransactionPipeline {
         innerTx,
         this.client.getNetworkPassphrase(),
       );
+      this.pipelineLogger.debug('Fee-bump transaction built', { baseFee });
       return ok(feeBump);
     } catch (e) {
+      this.pipelineLogger.error('Fee-bump transaction build failed', { error: e });
       return fail(TrustFlowError.feeBumpFailed('could not build fee-bump transaction', e));
     }
   }
@@ -356,8 +366,10 @@ export class TransactionPipeline {
     tx: SubmittableTransaction,
     options?: SubmitOptions,
   ): Promise<PipelineResult<PipelineSubmission>> {
+    this.pipelineLogger.debug('Submitting transaction', { isFeeBump: tx instanceof FeeBumpTransaction });
     return withRetry(
       async (attempt) => {
+        this.pipelineLogger.debug('Sending transaction to network', { attempt, hash: tx.hash?.toString() });
         const sendResult = await this.server.sendTransaction(tx);
 
         if (sendResult.status === 'ERROR') {
@@ -421,6 +433,7 @@ export class TransactionPipeline {
       // Only the queue wait raises a TrustFlowError here; `execute` reports
       // expected failures through its result, so anything else is unexpected.
       if (e instanceof TrustFlowError && e.code === 'TIMEOUT') {
+        this.pipelineLogger.error('Pipeline queue timeout', { sourceAccount: params.sourceAccount });
         return fail(e);
       }
       throw e;
@@ -448,18 +461,23 @@ export class TransactionPipeline {
       return prepared;
     }
 
+    this.pipelineLogger.debug('Signing transaction', { signersCount: params.signers.length });
     prepared.data.sign(...params.signers);
 
     const submitted = await this.submit(prepared.data, params.submit);
     if (submitted.ok) {
+      this.pipelineLogger.info('Transaction confirmed', { hash: submitted.data.hash, ledger: submitted.data.ledger });
       return submitted;
     }
+
+    this.pipelineLogger.warn('Transaction submission failed', { error: submitted.error.message });
 
     const feeBumpOptions = params.submit?.feeBump;
     if (!feeBumpOptions || !isFeeRelated(submitted.error)) {
       return submitted;
     }
 
+    this.pipelineLogger.info('Attempting fee-bump retry', { feeSource: feeBumpOptions.feeSource });
     const feeBumped = this.buildFeeBump(prepared.data, feeBumpOptions);
     if (!feeBumped.ok) {
       return feeBumped;
@@ -475,6 +493,7 @@ export class TransactionPipeline {
       return escalatedSubmission;
     }
 
+    this.pipelineLogger.info('Fee-bump transaction confirmed', { hash: escalatedSubmission.data.hash });
     return ok({ ...escalatedSubmission.data, feeBumped: true });
   }
 
@@ -485,6 +504,7 @@ export class TransactionPipeline {
     const attempts = options?.pollAttempts ?? DEFAULT_POLL_ATTEMPTS;
     const intervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
+    this.pipelineLogger.debug('Polling for transaction confirmation', { hash, maxAttempts: attempts, intervalMs });
     for (let i = 0; i < attempts; i++) {
       const result = await withRetry(
         () => this.server.getTransaction(hash),

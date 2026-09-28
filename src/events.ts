@@ -38,6 +38,13 @@ export interface ParsedEventBase {
   ledger: number;
   timestamp: string;
   id: string;
+  /**
+   * Opaque paging token from Soroban RPC `getEvents`, carried through so
+   * parsed events can be used to resume polling without re-delivery.
+   * Always present when parsed via {@link parseEvent}; optional only to
+   * keep hand-constructed test fixtures compiling.
+   */
+  pagingToken: string;
 }
 
 /**
@@ -119,6 +126,7 @@ export function parseEvent(event: RawContractEvent): ParsedTrustFlowEvent | null
     ledger: event.ledger,
     timestamp: event.ledgerClosedAt,
     id: event.id,
+    pagingToken: event.pagingToken,
   };
 
   switch (eventType) {
@@ -171,4 +179,126 @@ export function parseEvents(
     .filter((e) => isTrustFlowEvent(e, contractId))
     .map(parseEvent)
     .filter((e): e is ParsedTrustFlowEvent => e !== null);
+}
+
+// ── Resilient subscription primitives ────────────────────────────────────────
+// Soroban RPC serves contract events through `getEvents` (cursor /
+// `startLedger` based polling) rather than a push WebSocket, so
+// "reconnection" here means resuming polling from the last saved position.
+// The helpers below are transport-agnostic: they work with any object
+// exposing a `getEvents` method shaped like `rpc.Server#getEvents`.
+
+/**
+ * Pluggable cursor store behind which the last processed position is
+ * persisted. The in-memory default ({@link InMemoryCursorStore}) lasts for
+ * the process lifetime; pass a file-/DB-backed implementation for durability
+ * across restarts.
+ */
+export interface CursorStore {
+  get(): Promise<string | undefined> | string | undefined;
+  set(cursor: string): Promise<void> | void;
+}
+
+/** Process-lifetime {@link CursorStore} used when no durable store is supplied. */
+export class InMemoryCursorStore implements CursorStore {
+  private cursor?: string;
+  constructor(initialCursor?: string) {
+    this.cursor = initialCursor;
+  }
+  get(): string | undefined {
+    return this.cursor;
+  }
+  set(cursor: string): void {
+    this.cursor = cursor;
+  }
+}
+
+/** Options for {@link fetchContractEvents}. */
+export interface FetchContractEventsOptions {
+  /** TrustFlow contract ID to filter on. */
+  contractId: string;
+  /** Ledger to start from when no cursor is available. */
+  startLedger?: number;
+  /** Opaque cursor to resume from (takes precedence over `startLedger`). */
+  cursor?: string;
+  /** Max events per page. Defaults to 100. */
+  limit?: number;
+}
+
+/** One page of contract events plus the cursor for the next page. */
+export interface ContractEventsPage {
+  events: RawContractEvent[];
+  /** Cursor to pass as `cursor` for the next page (last event's paging token). */
+  nextCursor?: string;
+  /** Latest ledger known by the RPC node. */
+  latestLedger?: number;
+}
+
+/**
+ * Minimal shape of a Soroban RPC server needed by {@link fetchContractEvents}.
+ * Mirrors `rpc.Server#getEvents` loosely so tests can pass a mock.
+ */
+export interface GetEventsRpc {
+  getEvents(
+    request: Record<string, unknown>,
+  ): Promise<{
+    events?: Array<Record<string, unknown>>;
+    latestLedger?: number;
+    cursor?: string;
+  }>;
+}
+
+/**
+ * `getEvents`-backed fetch helper with contract-ID filter, `startLedger` /
+ * cursor resumption and pagination.
+ *
+ * If the RPC node prunes history, a cursor older than the retention window
+ * cannot be backfilled — the node answers with an error, which this helper
+ * rethrows so the caller (e.g. `EscrowMonitor`) can surface it as a gap
+ * instead of silently resuming from the wrong position.
+ *
+ * @param server - Soroban RPC server (or mock with a `getEvents` method)
+ * @param options - Contract filter, start position and page size
+ * @returns Raw contract events plus the cursor for the next page
+ *
+ * @example
+ * ```ts
+ * const client = new TrustFlowClient({ contractId });
+ * const page = await fetchContractEvents(client.getSorobanServer(), {
+ *   contractId,
+ *   cursor: await store.get(),
+ * });
+ * const parsed = parseEvents(page.events, contractId);
+ * if (page.nextCursor) await store.set(page.nextCursor);
+ * ```
+ */
+export async function fetchContractEvents(
+  server: GetEventsRpc,
+  options: FetchContractEventsOptions,
+): Promise<ContractEventsPage> {
+  const { contractId, startLedger, cursor, limit = 100 } = options;
+  const request: Record<string, unknown> = {
+    filters: [{ type: 'contract', contractIds: [contractId] }],
+    limit,
+    ...(cursor ? { cursor } : startLedger !== undefined ? { startLedger } : {}),
+  };
+  const response = await server.getEvents(request);
+  const rawEvents = (response.events ?? []) as unknown as RawContractEvent[];
+  const nextCursor =
+    response.cursor ?? (rawEvents.length > 0 ? rawEvents[rawEvents.length - 1].pagingToken : cursor);
+  return { events: rawEvents, nextCursor, latestLedger: response.latestLedger };
+}
+
+/**
+ * Build a cursor-aware raw fetcher from an RPC server, ready to hand to
+ * `EscrowMonitor#startResilientPolling`.
+ */
+export function createRpcEventFetcher(
+  server: GetEventsRpc,
+  options: Omit<FetchContractEventsOptions, 'cursor'>,
+): (cursor?: string) => Promise<RawContractEvent[]> {
+  return async (cursor?: string) => {
+    const page = await fetchContractEvents(server, { ...options, cursor });
+    return page.events;
+  };
 }

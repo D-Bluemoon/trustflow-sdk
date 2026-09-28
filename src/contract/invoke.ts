@@ -54,6 +54,8 @@ export async function invokeContract(
   const server = client.getSorobanServer();
   const contract = new Contract(client.contractId);
 
+  invokeLogger.debug('Invoking contract method', { method, caller, contractId: client.contractId, argsCount: args.length });
+
   try {
     const account = await withTransientRetry(
       () => server.getAccount(caller),
@@ -79,11 +81,14 @@ export async function invokeContract(
     );
 
     if (rpc.Api.isSimulationError(simulation)) {
+      invokeLogger.warn('Contract simulation failed', { method, error: simulation.error });
       return {
         success: false,
         errorCode: undefined,
       };
     }
+
+    invokeLogger.debug('Contract simulation successful', { method, gasUsed: simulation.minResourceFee });
 
     if (!signAndSubmit) {
       return {
@@ -95,8 +100,10 @@ export async function invokeContract(
 
     const prepared = rpc.assembleTransaction(tx, simulation).build();
     const xdr = prepared.toXDR();
+    invokeLogger.debug('Signing and submitting transaction', { method, xdrLength: xdr.length });
     const txHash = await signAndSubmit(xdr);
 
+    invokeLogger.info('Contract call submitted', { method, txHash });
     return {
       success: true,
       txHash,
@@ -104,6 +111,7 @@ export async function invokeContract(
       gasUsed: 0,
     };
   } catch (e) {
+    invokeLogger.error('Contract invocation failed', { method, caller, error: e });
     if (e instanceof TrustFlowError) {
       return { success: false, errorCode: undefined };
     }

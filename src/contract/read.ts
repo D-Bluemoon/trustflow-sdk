@@ -80,6 +80,12 @@ export async function readContractState(
     );
   }
 
-  const retval = (result as any).result?.retval;
-  return retval ? scValToNative(retval) : undefined;
+    const retval = (result as any).result?.retval;
+    logger.debug('Contract read succeeded', { method });
+    return retval ? scValToNative(retval) : undefined;
+  } catch (e) {
+    if (e instanceof TrustFlowError) throw e;
+    logger.error('Contract read failed', { method, error: e });
+    throw new TrustFlowError('Read simulation failed', 'SIMULATION_ERROR', e);
+  }
 }

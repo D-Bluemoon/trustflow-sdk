@@ -60,11 +60,13 @@ export async function simulateContractCall(
       'rpc.simulateTransaction',
     );
     if (rpc.Api.isSimulationError(result)) {
+      logger.warn('Contract simulation returned error', { error: result.error });
       return { success: false, cost: { cpuInsns: '0', memBytes: '0' }, error: result.error };
     }
     // Decode the simulated return value the same way readContractState does,
     // so callers get a native JS value rather than a raw ScVal.
     const retval = (result as rpc.Api.SimulateTransactionSuccessResponse).result?.retval;
+    logger.debug('Contract simulation succeeded');
     return {
       success: true,
       cost: {
@@ -74,6 +76,7 @@ export async function simulateContractCall(
       returnValue: retval ? scValToNative(retval) : undefined,
     };
   } catch (e) {
+    logger.error('Contract simulation failed', { error: e });
     throw new TrustFlowError('Simulation failed', 'SIMULATION_ERROR', e);
   }
 }

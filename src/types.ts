@@ -10,6 +10,16 @@ export interface BalanceCacheConfig {
   ttlMs?: number;
 }
 
+/** Logging configuration for the SDK client */
+export interface LoggingConfig {
+  /** Minimum log level (default: 'error'). Use 'silent' to disable all logging. */
+  level?: LogLevel;
+  /** Custom logger instance (pino, winston, console, etc.). Overrides `level` if provided. */
+  logger?: Logger;
+  /** Enable JSON structured output (default: false) */
+  json?: boolean;
+}
+
 export interface ClientConfig {
   network?: Network;
   contractId: string;
