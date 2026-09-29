@@ -748,3 +748,36 @@ Create pre-formatted errors:
 - `TrustFlowError.feeBumpFailed(detail: string, cause?: unknown)` — 'FEE_BUMP_ERROR' code
 - `TrustFlowError.submissionFailed(detail: string, cause?: unknown)` — 'SUBMISSION_ERROR' code
 - `TrustFlowError.retryExhausted(stage: string, attempts: number, cause?: unknown)` — 'RETRY_EXHAUSTED' code
+
+## Testing Kit (`@trustflow/sdk/testing`)
+
+Import offline test doubles and helpers:
+
+```typescript
+import {
+  createMockHorizonServer,
+  createMockSorobanServer,
+  MockWalletAdapter,
+  buildMockEscrow,
+  buildMockEscrowState,
+  buildMockContractEvent,
+  isValidScVal,
+  toBeValidScVal,
+} from @trustflow/sdk/testing;
+```
+
+See [docs/TESTING.md](./TESTING.md) for full usage examples.
+
+## Gig Search & Filter Options
+
+`client.getGigs(params)` supports the following query filters:
+- `cursor` — Pagination cursor
+- `limit` — Maximum items per page (positive integer <= 100)
+- `status` — Filter by escrow status
+- `depositor` — Filter by depositor Stellar address
+- `beneficiary` — Filter by beneficiary Stellar address
+- `tokenAddress` — Filter by custom token address
+- `createdAfter` / `createdBefore` — Filter by ISO date string or Date object
+- `minAmount` / `maxAmount` — Filter by amount bounds
+- `sortBy` — Sort field (`created_at`, `amount`, `deadline`, `status`)
+- `sortOrder` — Sort direction (`asc`, `desc`)

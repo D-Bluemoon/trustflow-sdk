@@ -62,14 +62,15 @@ export async function fetchAccountInfo(
   address: string,
   network: StellarNetwork,
   retry?: ApiRetryConfig,
+  horizonUrl?: string,
 ): Promise<AccountInfo> {
-  const { horizonUrl } = getNetworkConfig(network);
+  const effectiveHorizonUrl = horizonUrl ?? getNetworkConfig(network).horizonUrl;
 
   let response: Response | null;
   try {
     response = await withTransientRetry(
       async () => {
-        const res = await fetch(`${horizonUrl}/accounts/${address}`);
+        const res = await fetch(`${effectiveHorizonUrl}/accounts/${address}`);
         if (res.ok) return res;
 
         // A 404 is an answer, not a failure: the account genuinely does not
