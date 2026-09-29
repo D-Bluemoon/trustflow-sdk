@@ -22,7 +22,7 @@ export interface RawContractEvent {
   value: string;
 }
 
-export interface ParsedEvent<T = Record<string, unknown>> {
+export interface ParsedEvent<T = object> {
   type: TrustFlowEventType;
   contractId: string;
   ledger: number;

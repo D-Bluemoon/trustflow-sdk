@@ -1,4 +1,5 @@
 import type { TrustFlowClient } from '../client';
+import type { ContractConfig } from '../types/contract';
 import type { DisputeEscrowParams } from '../types';
 import { DisputeParams, SDKResult } from '../types/index';
 import { TrustFlowError } from '../errors';
@@ -41,12 +42,34 @@ export interface DisputeClientOptions {
 
 export class DisputeClient {
   private readonly http;
+  private readonly apiUrl: string;
+  private readonly token: string;
 
+  constructor(config: ContractConfig, options?: DisputeClientOptions);
+  /** @deprecated Pass a ContractConfig object instead. */
+  constructor(apiUrl: string, token: string, options?: DisputeClientOptions);
   constructor(
-    private apiUrl: string,
-    private token: string,
-    options: DisputeClientOptions = {},
+    configOrUrl: ContractConfig | string,
+    tokenOrOptions: string | DisputeClientOptions = {},
+    legacyOptions: DisputeClientOptions = {},
   ) {
+    const config = typeof configOrUrl === 'string' ? undefined : configOrUrl;
+    this.apiUrl = config ? config.apiBaseUrl ?? '' : String(configOrUrl);
+    this.token = config
+      ? config.apiKey ?? ''
+      : typeof tokenOrOptions === 'string'
+        ? tokenOrOptions
+        : '';
+    const options =
+      typeof tokenOrOptions === 'string' ? legacyOptions : tokenOrOptions;
+
+    if (!this.apiUrl) {
+      throw new Error('apiBaseUrl is required for DisputeClient');
+    }
+    if (!this.token) {
+      throw new Error('apiKey is required for DisputeClient');
+    }
+
     this.http = createApiHttpClient({
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,

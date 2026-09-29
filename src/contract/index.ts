@@ -10,3 +10,5 @@ export {
   buildVoteArgs,
 } from './build';
 export type { SimulationResult } from './simulate';
+export { SorobanSpec } from './spec';
+export type { SorobanSpecInput, SorobanUnionValue } from './spec';
