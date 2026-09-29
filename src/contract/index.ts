@@ -19,6 +19,7 @@ export {
 export { invokeContract, type SignAndSubmitFn, type InvokeContractOptions } from './invoke';
 export { readContractState, type ReadContractStateOptions } from './read';
 export { simulateContractCall } from './simulate';
+export { simulateTransaction, type SimulationOutcome } from './simulation';
 export {
   buildCreateEscrowArgs,
   buildReleaseArgs,
