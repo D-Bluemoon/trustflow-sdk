@@ -191,6 +191,41 @@ also fixes #245: an on-chain `FAILED` result no longer re-sends the same signed 
 in on the same origin no longer overwrite each other's token. Omitting the scope keeps the legacy
 unscoped key, so sessions written by earlier SDK versions still load.
 
+### Multi-sig operation input validation
+
+- Issue #285: `initMultiSigOperation` accepted input it could not honour, and the failures
+  surfaced much later — as an operation that never became ready, or as an assembly error after
+  every signer had already signed. It now refuses, with a message naming the offending field:
+  - a non-integer `threshold` (`threshold must be an integer`) — `NaN` satisfies both
+    `threshold < 1` and `threshold > signers.length`, and a fraction silently rounded the
+    M-of-N requirement;
+  - a `signers` entry that is not a valid Stellar address (`signers[2] is not a valid Stellar
+    address: …`), checked with `isValidStellarAddress` like every other entry point;
+  - a blank or over-long `escrowId` (max 128 characters), which is interpolated into
+    `operationId`;
+  - an `operationType` outside `release | cancel | dispute` — the union is erased at runtime, so
+    an untyped caller (or `JSON.parse`) previously stored anything, including `undefined`;
+  - an `unsignedXdr` that is not a parseable transaction envelope for the network
+    (`unsignedXdr is not a valid Stellar transaction envelope`), now checked up front through the
+    same helper `addSignature` uses, instead of at assembly time;
+  - a non-finite or already-past `expiresAt` (`expiresAt must be a finite UNIX timestamp in
+    milliseconds` / `expiresAt is in the past`).
+- Duplicate signers, the M-of-N bounds, the required-field checks and the network-passphrase
+  check are unchanged, and so are the error strings for all of them. `unsignedXdr` is parsed
+  before a signature can be added, so a valid `signedXdr` still assembles.
+
+### Multi-sig tests against the real client
+
+- Issue #288: `tests/multisig.test.ts` stubbed both the client and `stellar-sdk`, so it asserted
+  against hand-written fixtures — including a placeholder XDR and a mock address that the
+  validation above no longer accepts. It is rebuilt on deterministic keypairs, real transaction,
+  fee-bump and signed envelopes, a mocked Horizon and the real `MultiSigEscrowClient`, with one
+  case per validation rule, coverage of the lazy-expiry and envelope-type paths, and
+  `src/escrow/multisig.ts` at 100% line coverage. Two `it.failing` cases document the known
+  #280 (a signature is accepted from a claimed signer without verifying it against the envelope)
+  and #283 (submitting an already-submitted operation re-broadcasts it) gaps and start passing
+  when those are fixed.
+
 ## [Unreleased] — previous
 - The `@trustflow/sdk/react` entry is now emitted as a client module: `dist/hooks/index.js` and
   `dist/hooks/index.mjs` start with a `'use client'` directive. The entry exports hooks that call
