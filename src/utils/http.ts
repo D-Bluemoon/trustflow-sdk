@@ -54,6 +54,12 @@ export interface ApiHttpClientOptions {
   baseURL: string;
   apiKey?: string;
   apiVersion?: string;
+  /**
+   * Per-request timeout in milliseconds. Defaults to
+   * {@link DEFAULT_TIMEOUT_MS} (10s). A timeout surfaces as a
+   * `Request timed out after <n>ms` message from {@link toApiErrorMessage},
+   * distinguishable from an ordinary transport failure.
+   */
   timeoutMs?: number;
   retry?: ApiRetryConfig;
   additionalHeaders?: Record<string, string>;
@@ -168,6 +174,10 @@ export function installApiRetryInterceptor(
   instance: AxiosInstance,
   config: Required<ApiRetryConfig>,
 ): void {
+  // Unit tests mock `axios.create` to return a bare object without
+  // `interceptors`; there is no way to hook responses there, so skip rather
+  // than throw (the logging interceptors below are optional-chained too).
+  if (!instance.interceptors?.response) return;
   instance.interceptors.response.use(undefined, async (error: AxiosError) => {
     const requestConfig = error.config as RetryableRequestConfig | undefined;
     // No config means the failure happened before a request was even built
@@ -232,7 +242,7 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
 
   const instance = axios.create({
     baseURL: options.baseURL,
-    timeout: options.timeoutMs ?? 10_000,
+    timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     headers,
   });
 
@@ -289,6 +299,12 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
 
 /**
  * Maps unknown transport errors into stable SDK error strings.
+ *
+ * Timeouts are reported distinctly from other transport failures: an axios
+ * timeout becomes `Request timed out after <n>ms` (the configured budget,
+ * parsed off axios' own message) rather than the generic
+ * `Network error: timeout of <n>ms exceeded`, so callers can branch on
+ * "the server was slow" without string-matching axios internals.
  */
 export function toApiErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -296,6 +312,10 @@ export function toApiErrorMessage(error: unknown): string {
     const statusText = error.response?.statusText;
     if (typeof status === 'number') {
       return statusText ? `HTTP ${status}: ${statusText}` : `HTTP ${status}`;
+    }
+    if (isAxiosTimeoutError(error)) {
+      const ms = axiosTimeoutMs(error);
+      return ms === undefined ? 'Request timed out' : `Request timed out after ${ms}ms`;
     }
     return `Network error: ${error.message}`;
   }

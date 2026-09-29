@@ -17,7 +17,7 @@ export interface IPFSConfig {
   apiKey?: string;
   /** Read gateway used to build the returned `url` from a CID. */
   gatewayUrl?: string;
-  /** Request timeout in milliseconds. Defaults to 30s. */
+  /** Request timeout in milliseconds. Defaults to 10s. */
   timeoutMs?: number;
   /**
    * Retry budget for upload requests. Defaults to 3 retries with a 250ms base

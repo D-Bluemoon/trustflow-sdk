@@ -129,6 +129,22 @@ export class TrustFlowError extends Error {
     );
   }
 
+  /**
+   * A request exceeded its timeout budget — an HTTP/RPC call that never
+   * answered, or a confirmation poll that never saw the transaction land.
+   *
+   * `context` names the operation that timed out (e.g. `'horizon.fetch'`),
+   * so a log line or error message says *what* stalled, not just that
+   * something did.
+   */
+  static timedOut(timeoutMs: number, context?: string): TrustFlowError {
+    const where = context ? ` (${context})` : '';
+    return new TrustFlowError(
+      `Timed out after ${timeoutMs}ms${where}`,
+      'TIMEOUT',
+    );
+  }
+
   static retryExhausted(stage: string, attempts: number, cause?: unknown): TrustFlowError {
     return new TrustFlowError(
       `Retries exhausted for ${stage} after ${attempts} attempt(s)`,

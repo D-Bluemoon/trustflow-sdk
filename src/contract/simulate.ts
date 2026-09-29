@@ -30,12 +30,17 @@ interface FakeEnvelope {
  * returned as `{ success: false, error }` on the first attempt and never
  * retried — replaying it would produce the same contract error.
  *
+ * Each attempt is bounded by `options.timeoutMs`, falling back to the
+ * client-wide {@link ClientConfig.timeoutMs}; once every attempt has timed out
+ * and the retry budget is spent, the call throws `TIMEOUT`.
+ *
  * @param client - Configured client, for the RPC URL and retry budget
  * @param xdr - Base64 transaction envelope to simulate
- * @param options - Per-call account and retry overrides
+ * @param options - Per-call account, retry and timeout overrides
  * @returns `{ success: true, cost, returnValue }` or `{ success: false, error }`
  * @throws {TrustFlowError} `SIMULATION_ERROR` only when the RPC request itself
- *   fails after the retry budget is spent
+ *   fails after the retry budget is spent, `TIMEOUT` when every attempt
+ *   exceeded the timeout budget
  *
  * @example
  * ```typescript
@@ -56,7 +61,7 @@ export async function simulateContractCall(
         server.simulateTransaction({
           toEnvelope: () => ({ toXDR: () => xdr }) as FakeEnvelope,
         } as any),
-      options.retry,
+      { ...options.retry, timeoutMs: options.timeoutMs ?? client.timeoutMs },
       client.retryConfig,
       'rpc.simulateTransaction',
     );
@@ -77,6 +82,9 @@ export async function simulateContractCall(
       returnValue: retval ? scValToNative(retval) : undefined,
     };
   } catch (e) {
+    // A `TIMEOUT` (or any typed SDK error) keeps its code rather than being
+    // re-wrapped as a generic simulation failure.
+    if (e instanceof TrustFlowError) throw e;
     logger.error('Contract simulation failed', { error: e });
     throw new TrustFlowError('Simulation failed', 'SIMULATION_ERROR', e);
   }

@@ -19,6 +19,13 @@ export interface ReadContractStateOptions extends AccountOptions {
    * delay. See {@link import('../utils/retry').cappedExponentialBackoff}.
    */
   retry?: { attempts?: number; baseDelayMs?: number; maxDelayMs?: number };
+  /**
+   * Per-attempt timeout in milliseconds, overriding the client-wide
+   * {@link ClientConfig.timeoutMs}. A timed-out simulation is retried like
+   * any other transient failure, then surfaces as a `TIMEOUT`
+   * {@link TrustFlowError}.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -33,12 +40,17 @@ export interface ReadContractStateOptions extends AccountOptions {
  * deterministic answer from the node, so it is never retried and is thrown
  * immediately as `SIMULATION_ERROR`.
  *
+ * Each attempt is bounded by `options.timeoutMs`, falling back to the
+ * client-wide {@link ClientConfig.timeoutMs}; a timed-out attempt is retried,
+ * and once the budget is spent the call throws `TIMEOUT`.
+ *
  * @param client - Configured client, for the contract ID, network and retry budget
  * @param method - Contract method name
  * @param args - Positional arguments, encoded to `ScVal` by the contract spec
- * @param options - Per-call account and retry overrides
+ * @param options - Per-call account, retry and timeout overrides
  * @returns The method's decoded return value
- * @throws {TrustFlowError} `SIMULATION_ERROR` when the node rejects the simulation
+ * @throws {TrustFlowError} `SIMULATION_ERROR` when the node rejects the simulation,
+ *   `TIMEOUT` when every attempt exceeded the timeout budget
  *
  * @example
  * ```typescript
