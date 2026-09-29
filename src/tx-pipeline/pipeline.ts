@@ -11,6 +11,7 @@ import type { AccountContext } from '../accounts/types';
 import { TrustFlowError } from '../errors';
 import { retry } from '../utils/retry';
 import { classifyFailure, markTransient } from '../utils/transient';
+import { withTimeout } from '../utils/timeout';
 import { queueDepth, queueKey, runExclusive } from './queue';
 import type {
   AssembleParams,
@@ -25,7 +26,7 @@ import type {
 } from './types';
 import { logger } from '../utils/logger';
 
-const DEFAULT_RETRY_POLICY: Required<RetryPolicy> = {
+const DEFAULT_RETRY_POLICY: Required<Omit<RetryPolicy, 'timeoutMs'>> = {
   maxAttempts: 3,
   baseDelayMs: 300,
   maxDelayMs: 5000,
@@ -88,25 +89,36 @@ function unwrapStageError(error: TrustFlowError): unknown {
  *
  * `RETRY_EXHAUSTED` is reserved for what it says: a stage that really was
  * retried and really did run out of budget, with the last error as `cause`.
+ *
+ * When `policy.timeoutMs` is set, each attempt is additionally bounded by
+ * {@link withTimeout}; a timed-out attempt is retried like any other
+ * transient failure and surfaces as a `TIMEOUT` error once the budget is
+ * spent.
  */
 async function withRetry<T>(
   fn: (attempt: number) => Promise<T>,
   policy: RetryPolicy | undefined,
   stage: string,
+  defaultTimeoutMs?: number,
 ): Promise<PipelineResult<T>> {
   const { maxAttempts, baseDelayMs, maxDelayMs } = { ...DEFAULT_RETRY_POLICY, ...policy };
+  // Per-stage override, else the client-wide timeout every RPC call inherits.
+  const timeoutMs = policy?.timeoutMs ?? defaultTimeoutMs;
   const isTransient = (error: unknown): boolean => classifyFailure(error).transient;
 
   try {
-    const data = await retry(fn, {
-      attempts: maxAttempts,
-      delayMs: (attempt) => Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs),
-      shouldRetry: isTransient,
-      // Equal jitter: the delay lands in `[delay / 2, delay]`, which keeps the
-      // "second delay is capped by maxDelayMs" guarantee intact while
-      // desynchronising many pipelines that fail at the same moment.
-      jitter: true,
-    });
+    const data = await retry(
+      async (attempt: number) => withTimeout(fn(attempt), timeoutMs, `pipeline.${stage}`),
+      {
+        attempts: maxAttempts,
+        delayMs: (attempt) => Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs),
+        shouldRetry: isTransient,
+        // Equal jitter: the delay lands in `[delay / 2, delay]`, which keeps the
+        // "second delay is capped by maxDelayMs" guarantee intact while
+        // desynchronising many pipelines that fail at the same moment.
+        jitter: true,
+      },
+    );
     logger.debug('Pipeline stage succeeded', { stage, attempts: maxAttempts });
     return ok(data);
   } catch (e) {
@@ -114,6 +126,12 @@ async function withRetry<T>(
       // A terminal failure: surface the real error so callers can branch on
       // its code instead of parsing a retry wrapper.
       return fail(TrustFlowError.wrap(e));
+    }
+    // A timeout is its own diagnosis — once the retry budget is spent, show
+    // the `TIMEOUT` code itself rather than a generic retry-exhausted
+    // wrapper, so callers can branch on "it stalled" without unwrapping.
+    if (e instanceof TrustFlowError && e.code === 'TIMEOUT') {
+      return fail(e);
     }
     return fail(TrustFlowError.retryExhausted(stage, maxAttempts, e));
   }
@@ -160,6 +178,16 @@ async function withRetry<T>(
  * last error as `cause`) is reserved for a stage that was retried and ran out
  * of budget.
  *
+ * ### Timeouts
+ *
+ * The Stellar SDK's `rpc.Server` (v15.x) ignores its `timeout` constructor
+ * option, so request timeouts are enforced one layer up: every stage's RPC
+ * calls are raced against a deadline by `withTimeout`, defaulting to the
+ * client-wide `ClientConfig.timeoutMs` and overridable per stage with
+ * `RetryPolicy.timeoutMs`. Confirmation polling can additionally be bounded
+ * by an overall `SubmitOptions.pollTimeoutMs` deadline on top of
+ * `pollAttempts` x `pollIntervalMs`; both surface as `TIMEOUT` errors.
+ *
  * @example
  * ```typescript
  * const pipeline = new TransactionPipeline(client);
@@ -182,6 +210,10 @@ export class TransactionPipeline {
   private readonly pipelineLogger = logger;
 
   constructor(private readonly client: TrustFlowClient) {
+    // Note: the Stellar SDK's `rpc.Server` (v15.x) ignores its `timeout`
+    // constructor option, so request timeouts are enforced one layer up —
+    // every stage's RPC calls are bounded by `withTimeout` in `withRetry`,
+    // defaulting to the client-wide `ClientConfig.timeoutMs`.
     this.server = new rpc.Server(client.rpcUrl, { allowHttp: Config.isAllowHttp() });
   }
 
@@ -217,6 +249,7 @@ export class TransactionPipeline {
         () => this.server.getAccount(params.sourceAccount),
         options,
         'assemble',
+        this.client.timeoutMs,
       );
       if (!loaded.ok) {
         return fail(
@@ -271,6 +304,7 @@ export class TransactionPipeline {
       () => this.server.simulateTransaction(tx),
       options,
       'simulate',
+      this.client.timeoutMs,
     );
     if (!response.ok) {
       if (response.error.code === 'RETRY_EXHAUSTED') {
@@ -320,6 +354,7 @@ export class TransactionPipeline {
       },
       options,
       'prepare',
+      this.client.timeoutMs,
     );
   }
 
@@ -327,13 +362,21 @@ export class TransactionPipeline {
    * Wraps an already-signed (or to-be-signed) inner transaction in a
    * fee-bump envelope, paid for by `options.feeSource`.
    *
+   * The fee-bump base fee defaults to the inner transaction's fee. Stellar
+   * requires the base fee to be at least the inner transaction's fee rate
+   * (its inclusion fee per operation), and
+   * `TransactionBuilder.buildFeeBumpTransaction` rejects anything lower, so
+   * a fixed default cannot work for prepared Soroban transactions whose
+   * inclusion fee is set at assembly time. The inner transaction's total fee
+   * is always at least that rate, so the default is always valid.
+   *
    * @param innerTx - The inner transaction to wrap
    * @param options - Fee source and base fee for the fee-bump envelope
    */
   buildFeeBump(innerTx: Transaction, options: FeeBumpOptions): PipelineResult<FeeBumpTransaction> {
     this.pipelineLogger.debug('Building fee-bump transaction', { feeSource: options.feeSource });
     try {
-      const baseFee = options.baseFee ?? String(Number(BASE_FEE) * 10);
+      const baseFee = options.baseFee ?? innerTx.fee;
       const feeBump = TransactionBuilder.buildFeeBumpTransaction(
         options.feeSource,
         baseFee,
@@ -359,8 +402,13 @@ export class TransactionPipeline {
    * in both cases the node has not accepted the transaction and a replay of the
    * byte-identical envelope is the documented recovery.
    *
+   * Confirmation polling is bounded by `pollAttempts` x `pollIntervalMs`, and
+   * — when `pollTimeoutMs` is set — by that overall deadline too; the deadline
+   * failing produces a `TIMEOUT` error rather than the generic
+   * submission-failed one.
+   *
    * @param tx - A fully signed transaction or fee-bump transaction
-   * @param options - Poll interval/attempts and retry policy
+   * @param options - Poll interval/attempts, overall poll deadline, and retry policy
    */
   async submit(
     tx: SubmittableTransaction,
@@ -397,6 +445,7 @@ export class TransactionPipeline {
       },
       options,
       'submit',
+      this.client.timeoutMs,
     );
   }
 
@@ -480,7 +529,13 @@ export class TransactionPipeline {
     this.pipelineLogger.info('Attempting fee-bump retry', { feeSource: feeBumpOptions.feeSource });
     const feeBumped = this.buildFeeBump(prepared.data, feeBumpOptions);
     if (!feeBumped.ok) {
-      return feeBumped;
+      // The escalation is a recovery attempt: if the fee-bump envelope cannot
+      // even be built, the caller still needs the reason the original
+      // submission failed, so surface that instead of the construction error.
+      this.pipelineLogger.warn('Fee-bump build failed; returning the original submission error', {
+        error: feeBumped.error.message,
+      });
+      return submitted;
     }
 
     feeBumped.data.sign(feeBumpOptions.feeSource);
@@ -503,13 +558,32 @@ export class TransactionPipeline {
   ): Promise<number | undefined> {
     const attempts = options?.pollAttempts ?? DEFAULT_POLL_ATTEMPTS;
     const intervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    const pollTimeoutMs = options?.pollTimeoutMs;
+    const deadline = pollTimeoutMs !== undefined ? Date.now() + pollTimeoutMs : undefined;
 
-    this.pipelineLogger.debug('Polling for transaction confirmation', { hash, maxAttempts: attempts, intervalMs });
+    /** True once the overall confirmation deadline has elapsed. */
+    const deadlineExpired = (): boolean => deadline !== undefined && Date.now() >= deadline;
+
+    /** The envelope may or may not have landed; the node never rejected it, so a replay is a valid recovery. */
+    const throwDeadline = (): never => {
+      throw markTransient(TrustFlowError.timedOut(pollTimeoutMs as number, 'confirmation polling'));
+    };
+
+    this.pipelineLogger.debug('Polling for transaction confirmation', {
+      hash,
+      maxAttempts: attempts,
+      intervalMs,
+      pollTimeoutMs,
+    });
+
     for (let i = 0; i < attempts; i++) {
+      if (deadlineExpired()) throwDeadline();
+
       const result = await withRetry(
         () => this.server.getTransaction(hash),
         options,
         'submit.poll',
+        this.client.timeoutMs,
       );
       // Unwrap the poll stage's own retry wrapper so the surrounding
       // `submit` retry sees (and reports) the actual RPC failure once, rather
@@ -527,9 +601,13 @@ export class TransactionPipeline {
       }
 
       if (i < attempts - 1) {
-        await sleep(intervalMs);
+        // Cap the sleep so a long interval still observes the deadline promptly.
+        const remaining = deadline === undefined ? intervalMs : Math.max(0, deadline - Date.now());
+        await sleep(Math.min(intervalMs, remaining));
       }
     }
+
+    if (deadlineExpired()) throwDeadline();
 
     // The envelope may or may not have landed; the node never rejected it, so
     // a replay of the identical envelope is a valid recovery.

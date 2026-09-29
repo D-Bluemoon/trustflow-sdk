@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Horizon URL & Network Passphrase Overrides (#208)
+
+- Added `horizonUrl` and `networkPassphrase` overrides to `ClientConfig` and `ClientConfigSchema`, defaulting to network-derived values.
+- Exposed `horizonUrl` and `networkPassphrase` in `TrustFlowClient.getConfig()` and `TrustFlowClient.getNetworkPassphrase()`.
+- Validated `horizonUrl` and `rpcUrl` in `TrustFlowClient` constructor, failing fast with `TrustFlowError` (`INVALID_CONFIG`).
+- Updated `fetchAccountInfo` and `TrustFlowClient.getAccountInfo` to pass and respect configured custom Horizon endpoints.
+
+### TypeDoc Coverage & Documentation Build in CI (#219)
+
+- Expanded TypeDoc configuration in `typedoc.json` to include subpath entry points (`src/escrow/index.ts`, `src/wallet/index.ts`, `src/utils/index.ts`, `src/testing/index.ts`).
+- Added comprehensive JSDoc annotations across public types, client methods, and utilities.
+- Added automated `npm run docs` build step to GitHub Actions CI workflow (`.github/workflows/ci.yml`).
+
+### Filter & Sorting Extensions for `getGigs` (#235)
+
+- Extended `GetGigsParams` with date range (`createdAfter`, `createdBefore`), `tokenAddress`, amount range (`minAmount`, `maxAmount`), and sort options (`sortBy`, `sortOrder`).
+- Added strict parameter validation for `limit` (must be a positive integer), `depositor`, `beneficiary`, and `tokenAddress`.
+- Cleanly formatted and forwarded filter parameters to backend `/gigs` queries.
+
+### Consumer-Facing Testing Kit Subpath `@trustflow/sdk/testing` (#240)
+
+- Published `@trustflow/sdk/testing` subpath containing test doubles and fixture builders for deterministic offline testing without live network connections or monkey-patching.
+- Added `createMockHorizonServer` and `createMockSorobanServer` with canned responses.
+- Added `MockWalletAdapter` simulating browser wallet extension signatures and connections.
+- Added typed test fixture builders: `buildMockEscrow`, `buildMockEscrowState`, `buildMockContractEvent`.
+- Added ScVal validation helpers (`isValidScVal`, `toBeValidScVal`).
+- Published `docs/TESTING.md` guide covering offline integration testing strategies.
+
 ### Multi-account support
 
 The client used to model exactly one active account, so a multi-user application had to

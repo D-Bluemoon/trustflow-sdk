@@ -35,6 +35,12 @@ export interface MultiSigEscrowClientOptions {
    * from the in-memory store. Defaults to {@link DEFAULT_MULTISIG_RETENTION_MS}.
    */
   retentionMs?: number;
+  /**
+   * Timeout in milliseconds for the Horizon submission in
+   * {@link MultiSigEscrowClient.submitWhenReady}. Falls back to
+   * `config.timeoutMs`, then to the SDK-wide 10s default.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -52,12 +58,15 @@ export class MultiSigEscrowClient {
   private _opCounter = 0;
   /** Retention window for terminal-status operations before eviction. */
   private readonly retentionMs: number;
+  /** Submission timeout for `submitWhenReady`; falls back to the config. */
+  private readonly timeoutMs?: number;
 
   constructor(
     private readonly config: ContractConfig,
     options?: MultiSigEscrowClientOptions,
   ) {
     this.retentionMs = options?.retentionMs ?? DEFAULT_MULTISIG_RETENTION_MS;
+    this.timeoutMs = options?.timeoutMs ?? config.timeoutMs;
   }
 
   // ---------------------------------------------------------------------------
@@ -214,7 +223,7 @@ export class MultiSigEscrowClient {
 
     try {
       logger.debug('Submitting multi-sig operation', { operationId });
-      const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl);
+      const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl, undefined, this.timeoutMs);
       this._markTerminal(operation, 'submitted');
       logger.info('Multi-sig operation submitted', { operationId, txHash: submitted.hash });
       return {

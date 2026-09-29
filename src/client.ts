@@ -1,3 +1,4 @@
+import { negotiateApiVersion } from './utils/version';
 import { Config, Horizon, rpc, xdr } from '@stellar/stellar-sdk';
 import {
   HORIZON_URLS,
@@ -7,15 +8,14 @@ import {
   SDK_VERSION,
   DEFAULT_API_VERSION,
 } from './constants';
-import { RequestDeduplicator } from './utils/dedup';
-import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
-import { logger } from './utils/logger';
+import { logger, type SDKLogger } from './utils/logger';
 import { TrustFlowError } from './errors';
-import type { Network, ClientConfig, LoggingConfig } from './types';
+import type { Network, ClientConfig } from './types';
 import { IPFSStorage } from './storage';
 import { SimpleCache } from './utils/cache';
 import { AccountManager } from './accounts/manager';
 import type { AccountContext, AccountOptions, AddAccountInput } from './accounts/types';
+import { assertStellarAddress } from './utils/validation';
 import { fetchAccountInfo, type AccountInfo } from './stellar/account';
 import { withTransientRetry } from './utils/node-retry';
 import {
@@ -82,17 +82,23 @@ export class TrustFlowClient {
   private server: Horizon.Server;
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
-  private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
   private readonly logger: SDKLogger;
 
   readonly network: Network;
   readonly contractId: string;
   readonly rpcUrl: string;
+  readonly horizonUrl: string;
+  readonly networkPassphrase: string;
   readonly apiBaseUrl?: string;
   readonly apiKey?: string;
   readonly version: string = SDK_VERSION;
   readonly apiVersion: string;
+  /**
+   * Default per-request timeout for Horizon and Soroban RPC calls. Every
+   * per-call timeout option overrides it; see {@link ClientConfig.timeoutMs}.
+   */
+  readonly timeoutMs?: number;
   /** IPFS upload helper — `client.storage.upload(file)`. */
   readonly storage: IPFSStorage;
   /** Every account this client can act as. See {@link TrustFlowClient.useAccount}. */
@@ -114,6 +120,7 @@ export class TrustFlowClient {
    * @param config.apiKey - Optional API key for authenticated requests
    * @param config.ipfs - Optional configuration for the built-in `storage.upload()` IPFS helper
    * @param config.retry - Optional retry budget for every network call (see {@link ClientConfig.retry})
+   * @param config.timeoutMs - Optional per-request timeout for Horizon and Soroban RPC calls (see {@link ClientConfig.timeoutMs})
    * @param config.accounts - Optional account contexts to register up front
    *
    * @example
@@ -136,22 +143,73 @@ export class TrustFlowClient {
       throw new TrustFlowError('contractId is required', 'INVALID_CONFIG');
     }
 
+    if (config.rpcUrl) {
+      try {
+        new URL(config.rpcUrl);
+      } catch {
+        throw new TrustFlowError(`Invalid rpcUrl: "${config.rpcUrl}"`, 'INVALID_CONFIG');
+      }
+    }
+
+    if (config.horizonUrl) {
+      try {
+        new URL(config.horizonUrl);
+      } catch {
+        throw new TrustFlowError(`Invalid horizonUrl: "${config.horizonUrl}"`, 'INVALID_CONFIG');
+      }
+    }
+
     this.network = config.network ?? DEFAULT_NETWORK;
     this.contractId = config.contractId;
     this.rpcUrl = config.rpcUrl ?? SOROBAN_RPC_URLS[this.network];
+    this.horizonUrl = config.horizonUrl ?? HORIZON_URLS[this.network];
+    this.networkPassphrase = config.networkPassphrase ?? NETWORK_PASSPHRASES[this.network];
     this.apiBaseUrl = config.apiBaseUrl;
     this.apiKey = config.apiKey;
+    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
+    this.timeoutMs = config.timeoutMs;
     this.retryConfig = config.ipfs ? { ...config.retry, ...config.ipfs.retry } : config.retry;
     this.storage = new IPFSStorage(config.ipfs);
     this.balanceCache = config.balanceCache
       ? new SimpleCache(config.balanceCache.ttlMs ?? DEFAULT_BALANCE_CACHE_TTL_MS)
       : undefined;
 
-    this.server = new Horizon.Server(HORIZON_URLS[this.network]);
+    this.server = config.horizonServer ?? new Horizon.Server(this.horizonUrl);
+    this.sorobanServer = config.rpcServer;
+    this.logger = logger;
     this.accounts = new AccountManager();
     for (const account of config.accounts ?? []) {
       this.accounts.add(account);
     }
+
+    // Initialize logger from config
+    this.logger = this.createLogger(config.logging);
+  }
+
+  private createLogger(logging?: LoggingConfig): SDKLogger {
+    if (logging?.logger) {
+      // Wrap custom logger in SDKLogger interface
+      const customLogger = logging.logger;
+      return new SDKLogger({
+        minLevel: 'silent',
+        logger: {
+          debug: (msg, ctx) => customLogger.debug(msg, ctx),
+          info: (msg, ctx) => customLogger.info(msg, ctx),
+          warn: (msg, ctx) => customLogger.warn(msg, ctx),
+          error: (msg, ctx) => customLogger.error(msg, ctx),
+        },
+      });
+    }
+    return new SDKLogger({
+      minLevel: logging?.level ?? 'error',
+      json: logging?.json,
+      prefix: 'TrustFlowClient',
+    });
+  }
+
+  /** Get the internal logger instance */
+  getLogger(): SDKLogger {
+    return this.logger;
   }
 
   // ---------------------------------------------------------------------------
@@ -326,7 +384,7 @@ export class TrustFlowClient {
       // Test connection by fetching ledger info
       await withTransientRetry(
         () => this.getServer().ledgers().limit(1).call(),
-        undefined,
+        { timeoutMs: this.timeoutMs },
         this.retryConfig,
         'horizon.ledgers',
       );
@@ -335,6 +393,9 @@ export class TrustFlowClient {
     } catch (error) {
       this._connected = false;
       this.logger.error('Failed to connect to Stellar network', { network: this.network, error });
+      // A timeout is its own diagnosis — keep the `TIMEOUT` code instead of
+      // burying it under a generic connection failure.
+      if (error instanceof TrustFlowError && error.code === 'TIMEOUT') throw error;
       throw new TrustFlowError('Failed to connect to Stellar network', 'CONNECTION_ERROR', error);
     }
   }
@@ -346,6 +407,18 @@ export class TrustFlowClient {
    */
   isConnected(): boolean {
     return this._connected;
+  }
+
+  async verifyApiCompatibility(): Promise<{ compatible: boolean; serverVersion: string; clientVersion: string }> {
+    if (!this.apiBaseUrl) {
+      return { compatible: true, serverVersion: 'N/A', clientVersion: this.apiVersion };
+    }
+    const result = await negotiateApiVersion(this.apiBaseUrl, { clientVersion: this.apiVersion });
+    return {
+      compatible: result.compatible,
+      serverVersion: result.serverVersion,
+      clientVersion: result.clientVersion,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -374,6 +447,7 @@ export class TrustFlowClient {
    * ```
    */
   async getBalance(address: string, options: GetBalanceOptions = {}): Promise<string> {
+    assertStellarAddress(address, 'address');
     const cacheKey = this.balanceCacheKey(address, options.account);
     if (!options.skipCache) {
       const cachedBalance = this.balanceCache?.get(cacheKey);
@@ -383,7 +457,7 @@ export class TrustFlowClient {
     try {
       const account = await withTransientRetry(
         () => this.getServer().loadAccount(address),
-        undefined,
+        { timeoutMs: this.timeoutMs },
         this.retryConfig,
         'horizon.loadAccount',
       );
@@ -394,6 +468,8 @@ export class TrustFlowClient {
       this.balanceCache?.set(cacheKey, balance);
       return balance;
     } catch (error) {
+      // Keep a timeout distinguishable from a balance-fetch failure.
+      if (error instanceof TrustFlowError && error.code === 'TIMEOUT') throw error;
       throw new TrustFlowError(
         `Failed to fetch balance for ${address}`,
         'BALANCE_FETCH_ERROR',
@@ -425,12 +501,15 @@ export class TrustFlowClient {
     const account = this.accounts.require(options.account);
     try {
       return await withTransientRetry(
-        () => fetchAccountInfo(account.address, this.network, this.retryConfig),
+        () => fetchAccountInfo(account.address, this.network, this.retryConfig, this.horizonUrl, this.timeoutMs),
         undefined,
         this.retryConfig,
         'horizon.accountInfo',
       );
     } catch (error) {
+      // A timed-out fetch keeps its `TIMEOUT` code rather than masquerading
+      // as a generic connection failure.
+      if (error instanceof TrustFlowError && error.code === 'TIMEOUT') throw error;
       throw new TrustFlowError(
         `Failed to fetch account info for ${account.address}`,
         'CONNECTION_ERROR',
@@ -509,6 +588,12 @@ export class TrustFlowClient {
    * Plain-http URLs are refused unless the Stellar SDK's global
    * `Config.setAllowHttp(true)` is set (e.g. for a local quickstart node).
    *
+   * Note: the Stellar SDK's `rpc.Server` (v15.x) ignores its `timeout`
+   * constructor option, so request timeouts are enforced one layer up — every
+   * call made through this server is bounded by
+   * {@link ClientConfig.timeoutMs} via {@link import('./utils/timeout').withTimeout}
+   * (see `readContractState` / `simulateContractCall` / `invokeContract`).
+   *
    * @returns Cached rpc.Server instance for this client's network
    *
    * @example
@@ -529,9 +614,7 @@ export class TrustFlowClient {
    * @returns Network passphrase string
    */
   getNetworkPassphrase(): string {
-    // Reads the same canonical source as HORIZON_URLS / SOROBAN_RPC_URLS
-    // (NETWORK_CONFIGS via constants) rather than a third inline copy (#109).
-    return NETWORK_PASSPHRASES[this.network];
+    return this.networkPassphrase;
   }
 
   /**
@@ -608,6 +691,8 @@ export class TrustFlowClient {
     network: Network;
     contractId: string;
     rpcUrl: string;
+    horizonUrl: string;
+    networkPassphrase: string;
     apiConfigured: boolean;
     version: string;
     activeAccount: string | null;
@@ -618,6 +703,8 @@ export class TrustFlowClient {
       network: this.network,
       contractId: this.contractId,
       rpcUrl: this.rpcUrl,
+      horizonUrl: this.horizonUrl,
+      networkPassphrase: this.networkPassphrase,
       apiConfigured: Boolean(this.apiBaseUrl && this.apiKey),
       version: this.version,
       activeAccount: this.accounts.active?.address ?? null,

@@ -64,6 +64,7 @@ describe('package exports map (#100)', () => {
       './escrow': 'src/escrow/index.ts',
       './wallet': 'src/wallet/index.ts',
       './utils': 'src/utils/index.ts',
+      './testing': 'src/testing/index.ts',
     };
     for (const [subpath, entry] of Object.entries(entryForSubpath)) {
       if (exportKeys.includes(subpath)) {

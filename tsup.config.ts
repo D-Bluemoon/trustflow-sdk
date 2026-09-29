@@ -9,6 +9,7 @@ export default defineConfig({
     'src/escrow/index.ts',
     'src/wallet/index.ts',
     'src/utils/index.ts',
+    'src/testing/index.ts',
     // Node-only entry. The only module graph in the package that reaches for
     // `http`/`https`, which is what keeps every other entry polyfill-free in a
     // browser bundle (#webpack5).

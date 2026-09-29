@@ -10,6 +10,7 @@ import type { TrustFlowClient } from '../client';
 import type { AccountOptions } from '../accounts/types';
 import { TrustFlowError } from '../errors';
 import { withTransientRetry } from '../utils/node-retry';
+import { logger } from '../utils/logger';
 
 export interface ReadContractStateOptions extends AccountOptions {
   /**
@@ -18,6 +19,13 @@ export interface ReadContractStateOptions extends AccountOptions {
    * delay. See {@link import('../utils/retry').cappedExponentialBackoff}.
    */
   retry?: { attempts?: number; baseDelayMs?: number; maxDelayMs?: number };
+  /**
+   * Per-attempt timeout in milliseconds, overriding the client-wide
+   * {@link ClientConfig.timeoutMs}. A timed-out simulation is retried like
+   * any other transient failure, then surfaces as a `TIMEOUT`
+   * {@link TrustFlowError}.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -32,12 +40,17 @@ export interface ReadContractStateOptions extends AccountOptions {
  * deterministic answer from the node, so it is never retried and is thrown
  * immediately as `SIMULATION_ERROR`.
  *
+ * Each attempt is bounded by `options.timeoutMs`, falling back to the
+ * client-wide {@link ClientConfig.timeoutMs}; a timed-out attempt is retried,
+ * and once the budget is spent the call throws `TIMEOUT`.
+ *
  * @param client - Configured client, for the contract ID, network and retry budget
  * @param method - Contract method name
  * @param args - Positional arguments, encoded to `ScVal` by the contract spec
- * @param options - Per-call account and retry overrides
+ * @param options - Per-call account, retry and timeout overrides
  * @returns The method's decoded return value
- * @throws {TrustFlowError} `SIMULATION_ERROR` when the node rejects the simulation
+ * @throws {TrustFlowError} `SIMULATION_ERROR` when the node rejects the simulation,
+ *   `TIMEOUT` when every attempt exceeded the timeout budget
  *
  * @example
  * ```typescript
@@ -66,19 +79,20 @@ export async function readContractState(
     .setTimeout(30)
     .build();
 
-  const result = await withTransientRetry(
-    () => server.simulateTransaction(tx),
-    options.retry,
-    client.retryConfig,
-    'rpc.simulateTransaction',
-  );
-
-  if (rpc.Api.isSimulationError(result as any)) {
-    throw new TrustFlowError(
-      `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
-      'SIMULATION_ERROR',
+  try {
+    const result = await withTransientRetry(
+      () => server.simulateTransaction(tx),
+      options.retry,
+      client.retryConfig,
+      'rpc.simulateTransaction',
     );
-  }
+
+    if (rpc.Api.isSimulationError(result as any)) {
+      throw new TrustFlowError(
+        `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
+        'SIMULATION_ERROR',
+      );
+    }
 
     const retval = (result as any).result?.retval;
     logger.debug('Contract read succeeded', { method });
