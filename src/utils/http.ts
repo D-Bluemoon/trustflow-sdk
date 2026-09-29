@@ -2,6 +2,10 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { readRetryAfterMs } from './transient';
 import { attachInterceptors } from './interceptors';
 import type { HttpInterceptors } from './interceptors';
+import { SDK_VERSION, DEFAULT_API_VERSION } from '../constants';
+import { createLogger } from './logger';
+
+const httpLogger = createLogger('http');
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
