@@ -4,11 +4,12 @@ import type { ContractCallResult } from '../types/contract';
 import type { AccountOptions } from '../accounts/types';
 import { TrustFlowError } from '../errors';
 import { withTransientRetry } from '../utils/node-retry';
+import { logger } from '../utils/logger';
 import type { ReadContractStateOptions } from './read';
 
 export type SignAndSubmitFn = (xdr: string) => Promise<string>;
 
-/** Per-call account and retry overrides for {@link invokeContract}. */
+/** Per-call account, retry and timeout overrides for {@link invokeContract}. */
 export interface InvokeContractOptions extends AccountOptions {
   /**
    * Overrides the client's retry budget for this call — `attempts` counts the
@@ -16,6 +17,12 @@ export interface InvokeContractOptions extends AccountOptions {
    * delay. See {@link import('../utils/retry').cappedExponentialBackoff}.
    */
   retry?: ReadContractStateOptions['retry'];
+  /**
+   * Per-attempt timeout in milliseconds for the `getAccount` and
+   * `simulateTransaction` calls, overriding the client-wide
+   * {@link ClientConfig.timeoutMs}.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -33,13 +40,16 @@ export interface InvokeContractOptions extends AccountOptions {
  * `{ success: false }`, matching this function's existing contract of never
  * throwing.
  *
+ * Each RPC attempt is bounded by `options.timeoutMs`, falling back to the
+ * client-wide {@link ClientConfig.timeoutMs}.
+ *
  * @param client - Configured client, for the contract ID, network and retry budget
  * @param method - Contract method name
  * @param args - Positional arguments, already encoded to `ScVal`s
  * @param caller - `G...` address whose sequence number and sequence-locked
  *   footprint back the transaction
  * @param signAndSubmit - Optional callback to sign and broadcast the envelope
- * @param options - Per-call account and retry overrides
+ * @param options - Per-call account, retry and timeout overrides
  * @returns The call outcome; never throws for expected failure modes
  */
 export async function invokeContract(
@@ -54,12 +64,12 @@ export async function invokeContract(
   const server = client.getSorobanServer();
   const contract = new Contract(client.contractId);
 
-  invokeLogger.debug('Invoking contract method', { method, caller, contractId: client.contractId, argsCount: args.length });
+  logger.debug('Invoking contract method', { method, caller, contractId: client.contractId, argsCount: args.length });
 
   try {
     const account = await withTransientRetry(
       () => server.getAccount(caller),
-      options.retry,
+      { ...options.retry, timeoutMs: options.timeoutMs ?? client.timeoutMs },
       client.retryConfig,
       'rpc.getAccount',
     );
@@ -75,20 +85,20 @@ export async function invokeContract(
 
     const simulation = await withTransientRetry(
       () => server.simulateTransaction(tx),
-      options.retry,
+      { ...options.retry, timeoutMs: options.timeoutMs ?? client.timeoutMs },
       client.retryConfig,
       'rpc.simulateTransaction',
     );
 
     if (rpc.Api.isSimulationError(simulation)) {
-      invokeLogger.warn('Contract simulation failed', { method, error: simulation.error });
+      logger.warn('Contract simulation failed', { method, error: simulation.error });
       return {
         success: false,
         errorCode: undefined,
       };
     }
 
-    invokeLogger.debug('Contract simulation successful', { method, gasUsed: simulation.minResourceFee });
+    logger.debug('Contract simulation successful', { method, gasUsed: simulation.minResourceFee });
 
     if (!signAndSubmit) {
       return {
@@ -100,10 +110,10 @@ export async function invokeContract(
 
     const prepared = rpc.assembleTransaction(tx, simulation).build();
     const xdr = prepared.toXDR();
-    invokeLogger.debug('Signing and submitting transaction', { method, xdrLength: xdr.length });
+    logger.debug('Signing and submitting transaction', { method, xdrLength: xdr.length });
     const txHash = await signAndSubmit(xdr);
 
-    invokeLogger.info('Contract call submitted', { method, txHash });
+    logger.info('Contract call submitted', { method, txHash });
     return {
       success: true,
       txHash,
@@ -111,7 +121,7 @@ export async function invokeContract(
       gasUsed: 0,
     };
   } catch (e) {
-    invokeLogger.error('Contract invocation failed', { method, caller, error: e });
+    logger.error('Contract invocation failed', { method, caller, error: e });
     if (e instanceof TrustFlowError) {
       return { success: false, errorCode: undefined };
     }

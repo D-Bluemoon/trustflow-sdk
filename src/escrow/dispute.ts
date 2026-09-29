@@ -60,7 +60,7 @@ import type { ContractConfig } from '../types/contract';
 
 /** Constructor options for {@link DisputeClient}. */
 export interface DisputeClientOptions {
-  /** Per-request timeout (ms) applied to backend dispute calls. */
+  /** Per-request timeout (ms) applied to backend dispute calls. Falls back to `config.timeoutMs`. */
   timeoutMs?: number;
   /**
    * Retry budget for backend calls. Defaults to 3 retries with a 250ms base
@@ -115,7 +115,7 @@ export class DisputeClient {
 
     this.http = createApiHttpClient({
       baseURL: this.apiUrl,
-      timeoutMs: options.timeoutMs,
+      timeoutMs: options.timeoutMs ?? config.timeoutMs,
       retry: options.retry,
       interceptors: options.interceptors ?? config.interceptors,
       additionalHeaders: {

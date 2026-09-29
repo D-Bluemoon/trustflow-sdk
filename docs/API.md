@@ -481,6 +481,34 @@ Horizon/Soroban defaults come from `DEFAULT_NODE_RETRY_CONFIG` (2 retries, 300ms
 deliberately shorter than the backend default, so a degraded network surfaces quickly instead of
 stalling a UI.
 
+### Timeouts
+
+Every network call the SDK makes is bounded by a deadline, so a stalled server surfaces as a
+`TIMEOUT` error instead of hanging the caller. The client-wide default is configured once:
+
+```typescript
+const client = new TrustFlowClient({
+  contractId,
+  timeoutMs: 15_000, // default 10s — Horizon + Soroban RPC calls
+});
+```
+
+| Option | Default | Applies to |
+|---|---|---|
+| `ClientConfig.timeoutMs` | `10_000` | `connect()`, `getBalance()`, `getAccountInfo()`, and every contract read/simulate/invoke call |
+| `ReadContractStateOptions.timeoutMs` / `InvokeContractOptions.timeoutMs` | client-wide | one contract call |
+| `RetryPolicy.timeoutMs` (pipeline) | client-wide | each attempt of one pipeline stage |
+| `SubmitOptions.pollTimeoutMs` | `pollAttempts` x `pollIntervalMs` | overall confirmation-polling deadline |
+| `ContractConfig.timeoutMs` | `10_000` | backend calls made by `TrustFlowEscrowClient` / `DisputeClient` / `MultiSigEscrowClient` |
+| `TrustFlowEscrowClientOptions.timeoutMs` / `DisputeClientOptions.timeoutMs` / `MultiSigEscrowClientOptions.timeoutMs` / `AuthRequestOptions.timeoutMs` / `IPFSConfig.timeoutMs` | `10_000` | one backend client or call |
+
+A timed-out attempt is retried like any other transient failure while the retry budget lasts;
+once the budget is spent the call fails with a `TIMEOUT` `TrustFlowError` (or a
+`Request timed out after <n>ms` message from the backend clients). The Stellar SDK's
+`rpc.Server` (v15.x) ignores its `timeout` constructor option, so RPC timeouts are enforced by
+racing each call against the deadline; the raw-`fetch` helpers (`fetchAccountInfo`,
+`submitTransaction`) abort the in-flight request at the deadline.
+
 ### Retry classification
 
 `classifyFailure(error)` returns `{ kind, transient, status?, retryAfterMs?, reason }`, where

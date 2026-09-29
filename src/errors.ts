@@ -25,7 +25,9 @@ export type TrustFlowErrorCode =
   | 'INVALID_CONTRACT_CALL'
   | 'CIRCUIT_BREAKER_OPEN'
   | 'ACCOUNT_NOT_FOUND'
-  | 'UNSUPPORTED_ENVIRONMENT';
+  | 'UNSUPPORTED_ENVIRONMENT'
+  | 'VERSION_MISMATCH'
+  | 'USER_REJECTED';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
@@ -123,6 +125,22 @@ export class TrustFlowError extends Error {
   static queueTimeout(timeoutMs: number): TrustFlowError {
     return new TrustFlowError(
       `Timed out after ${timeoutMs}ms waiting for earlier transactions from the same source account`,
+      'TIMEOUT',
+    );
+  }
+
+  /**
+   * A request exceeded its timeout budget — an HTTP/RPC call that never
+   * answered, or a confirmation poll that never saw the transaction land.
+   *
+   * `context` names the operation that timed out (e.g. `'horizon.fetch'`),
+   * so a log line or error message says *what* stalled, not just that
+   * something did.
+   */
+  static timedOut(timeoutMs: number, context?: string): TrustFlowError {
+    const where = context ? ` (${context})` : '';
+    return new TrustFlowError(
+      `Timed out after ${timeoutMs}ms${where}`,
       'TIMEOUT',
     );
   }
