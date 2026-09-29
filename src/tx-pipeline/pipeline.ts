@@ -327,13 +327,21 @@ export class TransactionPipeline {
    * Wraps an already-signed (or to-be-signed) inner transaction in a
    * fee-bump envelope, paid for by `options.feeSource`.
    *
+   * The fee-bump base fee defaults to the inner transaction's fee. Stellar
+   * requires the base fee to be at least the inner transaction's fee rate
+   * (its inclusion fee per operation), and
+   * `TransactionBuilder.buildFeeBumpTransaction` rejects anything lower, so
+   * a fixed default cannot work for prepared Soroban transactions whose
+   * inclusion fee is set at assembly time. The inner transaction's total fee
+   * is always at least that rate, so the default is always valid.
+   *
    * @param innerTx - The inner transaction to wrap
    * @param options - Fee source and base fee for the fee-bump envelope
    */
   buildFeeBump(innerTx: Transaction, options: FeeBumpOptions): PipelineResult<FeeBumpTransaction> {
     this.pipelineLogger.debug('Building fee-bump transaction', { feeSource: options.feeSource });
     try {
-      const baseFee = options.baseFee ?? String(Number(BASE_FEE) * 10);
+      const baseFee = options.baseFee ?? innerTx.fee;
       const feeBump = TransactionBuilder.buildFeeBumpTransaction(
         options.feeSource,
         baseFee,
@@ -480,7 +488,13 @@ export class TransactionPipeline {
     this.pipelineLogger.info('Attempting fee-bump retry', { feeSource: feeBumpOptions.feeSource });
     const feeBumped = this.buildFeeBump(prepared.data, feeBumpOptions);
     if (!feeBumped.ok) {
-      return feeBumped;
+      // The escalation is a recovery attempt: if the fee-bump envelope cannot
+      // even be built, the caller still needs the reason the original
+      // submission failed, so surface that instead of the construction error.
+      this.pipelineLogger.warn('Fee-bump build failed; returning the original submission error', {
+        error: feeBumped.error.message,
+      });
+      return submitted;
     }
 
     feeBumped.data.sign(feeBumpOptions.feeSource);
