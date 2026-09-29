@@ -92,6 +92,26 @@ export type ParsedTrustFlowEvent =
       data: Record<string, unknown>;
     });
 
+/**
+ * The {@link ParsedTrustFlowEvent} member(s) that can carry `T` as their
+ * `type` (#287).
+ *
+ * `Extract<ParsedTrustFlowEvent, { type: T }>` is not enough on its own: the
+ * untyped branch declares `type` as a *union* of the remaining names, and a
+ * wide union is not assignable to a single literal, so `Extract` would resolve
+ * to `never` for `escrow_cancelled`, `dispute_resolved` and
+ * `milestone_completed`. Matching the other way round — "is `T` assignable to
+ * this member's `type`?" — distributes over the union and keeps the member
+ * whose name list contains `T`.
+ */
+export type ParsedEventForType<T extends TrustFlowEventType> = ParsedTrustFlowEvent extends infer E
+  ? E extends { type: infer K }
+    ? T extends K
+      ? E
+      : never
+    : never
+  : never;
+
 /** Decode a Soroban XDR value string to a plain JS string */
 function decodeScVal(xdr: string): string {
   // In production, use @stellar/stellar-sdk ScVal.fromXDR().value()

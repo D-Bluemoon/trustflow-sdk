@@ -214,6 +214,31 @@ unscoped key, so sessions written by earlier SDK versions still load.
   check are unchanged, and so are the error strings for all of them. `unsignedXdr` is parsed
   before a signature can be added, so a valid `signedXdr` still assembles.
 
+### EscrowMonitor handler typing
+
+- Issue #287: `EscrowMonitor.on` / `off` are now overloaded, so a handler is contextually typed by
+  the event name it registers for:
+
+  ```typescript
+  monitor.on('escrow_created', (e) => console.log(e.data.escrowId, e.data.amount));
+  monitor.on('*', (e) => console.log('any event', e.type));
+  ```
+
+  `e.data` is the payload for that event — `EscrowCreatedData`, `EscrowReleasedData` or
+  `DisputeRaisedData` — with no second `if (e.type === ...)` narrowing, and `off` takes the same
+  literal so a narrowed handler is removed without a cast. `monitor.on('escrow_cancelled', e =>
+  …)` still receives `Record<string, unknown>`, which is what the untyped events carry.
+- New exported types: `MonitorEventName` (`TrustFlowEventType | '*'`, including the wildcard that
+  was previously discoverable only by reading `deliver`), `EventHandlerFor<T>` and
+  `ParsedEventForType<T>`.
+- **Behaviour change to be aware of:** a *literal* event name the parser never emits is now a
+  compile error (`monitor.on('escrow_create', …)`, `monitor.on('escrow.created', …)`). It used to
+  compile and register a handler that silently never fired. A name held in a `string` variable
+  still works — that fallback overload is kept and marked deprecated — so
+  `monitor.on(nameFromConfig, …)` compiles until you type the variable as `MonitorEventName`.
+- No runtime change: `on`, `off` and `deliver` behave exactly as before, wildcard dispatch
+  included.
+
 ### Multi-sig tests against the real client
 
 - Issue #288: `tests/multisig.test.ts` stubbed both the client and `stellar-sdk`, so it asserted
