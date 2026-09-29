@@ -50,7 +50,11 @@ export interface PrepareOptions extends RetryPolicy {
 export interface FeeBumpOptions {
   /** Keypair of the account that will pay the bumped fee and sign the fee-bump envelope. */
   feeSource: Keypair;
-  /** Fee in stroops for the fee-bump envelope. Defaults to 10x `BASE_FEE`. */
+  /**
+   * Fee in stroops for the fee-bump envelope. Defaults to the inner
+   * transaction's fee, which always satisfies Stellar's requirement that the
+   * fee-bump base fee cover the inner transaction's fee rate.
+   */
   baseFee?: string;
 }
 
