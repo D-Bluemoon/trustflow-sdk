@@ -28,7 +28,8 @@ export type TrustFlowErrorCode =
   | 'ACCOUNT_NOT_FOUND'
   | 'UNSUPPORTED_ENVIRONMENT'
   | 'VERSION_MISMATCH'
-  | 'USER_REJECTED';
+  | 'USER_REJECTED'
+  | 'STALE_CHALLENGE';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
