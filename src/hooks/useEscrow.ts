@@ -16,8 +16,8 @@ export function useEscrow(client: TrustFlowClient) {
         const e = await createEscrow(client, params);
         setEscrow(e);
         return e;
-      } catch (e: any) {
-        setError(e.message);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
         throw e;
       } finally {
         setLoading(false);
@@ -32,8 +32,8 @@ export function useEscrow(client: TrustFlowClient) {
       setError(null);
       try {
         return await releaseEscrow(client, { escrowId, caller });
-      } catch (e: any) {
-        setError(e.message);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
         throw e;
       } finally {
         setLoading(false);

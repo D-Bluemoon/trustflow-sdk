@@ -1,4 +1,4 @@
-﻿import { MultiSigEscrowClient } from '../src/escrow/multisig';
+import { MultiSigEscrowClient } from '../src/escrow/multisig';
 
 describe('MultiSigEscrowClient Negative and Boundary Tests', () => {
     let client: any;
@@ -30,7 +30,7 @@ describe('MultiSigEscrowClient Negative and Boundary Tests', () => {
             return { ok: true, data: { operationId: 'op_123' } };
         };
 
-        client.addSignature = (opId: string, signer: string, xdr: string) => {
+        client.addSignature = (_opId: string, signer: string, _xdr: string) => {
             if (signer === 'G_UNAUTHORIZED_STELLAR_ADDRESS_EXAMPLE_HOLDER') {
                 return { ok: false, error: 'not an authorised signer' };
             }

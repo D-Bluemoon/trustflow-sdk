@@ -19,7 +19,16 @@ export type TrustFlowErrorCode =
   | 'ASSEMBLY_ERROR'
   | 'FEE_BUMP_ERROR'
   | 'SUBMISSION_ERROR'
-  | 'RETRY_EXHAUSTED';
+  | 'RETRY_EXHAUSTED'
+  | 'NETWORK_ERROR'
+  | 'AUTH_ERROR'
+  | 'TIMEOUT'
+  | 'INVALID_CONTRACT_CALL'
+  | 'CIRCUIT_BREAKER_OPEN'
+  | 'ACCOUNT_NOT_FOUND'
+  | 'UNSUPPORTED_ENVIRONMENT'
+  | 'VERSION_MISMATCH'
+  | 'USER_REJECTED';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
@@ -30,6 +39,30 @@ export class TrustFlowError extends Error {
     this.name = 'TrustFlowError';
     this.code = code;
     this.cause = cause;
+  }
+
+  static wrap(error: unknown, code: TrustFlowErrorCode = 'CONTRACT_ERROR'): TrustFlowError {
+    if (error instanceof TrustFlowError) {
+      return error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return new TrustFlowError(message, code, error);
+  }
+
+  static versionMismatch(
+    clientVersion: string,
+    serverVersion: string,
+    details?: string,
+  ): TrustFlowError {
+    const reason = details ? ` (${details})` : '';
+    return new TrustFlowError(
+      `API version mismatch: client expected ${clientVersion}, server reported ${serverVersion}${reason}`,
+      'VERSION_MISMATCH',
+    );
+  }
+
+  static userRejected(detail = 'User rejected wallet connection', cause?: unknown): TrustFlowError {
+    return new TrustFlowError(detail, 'USER_REJECTED', cause);
   }
 
   static notFound(resource: string): TrustFlowError {
@@ -86,11 +119,53 @@ export class TrustFlowError extends Error {
     );
   }
 
+  static signingFailed(detail: string, cause?: unknown): TrustFlowError {
+    return new TrustFlowError(`Signing failed: ${detail}`, 'SIGNING_ERROR', cause);
+  }
+
+  static queueTimeout(timeoutMs: number): TrustFlowError {
+    return new TrustFlowError(
+      `Timed out after ${timeoutMs}ms waiting for earlier transactions from the same source account`,
+      'TIMEOUT',
+    );
+  }
+
+  /**
+   * A request exceeded its timeout budget — an HTTP/RPC call that never
+   * answered, or a confirmation poll that never saw the transaction land.
+   *
+   * `context` names the operation that timed out (e.g. `'horizon.fetch'`),
+   * so a log line or error message says *what* stalled, not just that
+   * something did.
+   */
+  static timedOut(timeoutMs: number, context?: string): TrustFlowError {
+    const where = context ? ` (${context})` : '';
+    return new TrustFlowError(
+      `Timed out after ${timeoutMs}ms${where}`,
+      'TIMEOUT',
+    );
+  }
+
   static retryExhausted(stage: string, attempts: number, cause?: unknown): TrustFlowError {
     return new TrustFlowError(
       `Retries exhausted for ${stage} after ${attempts} attempt(s)`,
       'RETRY_EXHAUSTED',
       cause,
+    );
+  }
+
+  /**
+   * The requested account context is not registered, or no account is active
+   * and the call needed one. Only raised when a caller explicitly names an
+   * account — with no account configured, the SDK stays in its original
+   * single-account mode and never throws this.
+   */
+  static accountNotFound(ref?: string): TrustFlowError {
+    return new TrustFlowError(
+      ref
+        ? `No account context registered for "${ref}". Call client.accounts.add() first.`
+        : 'No account context is active. Call client.useAccount(id) or pass { account } explicitly.',
+      'ACCOUNT_NOT_FOUND',
     );
   }
 }

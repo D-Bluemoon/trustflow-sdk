@@ -5,11 +5,21 @@ export interface FreighterWallet {
   getNetwork(): Promise<string>;
 }
 
+interface FreighterWindow {
+  freighter?: {
+    getPublicKey(): Promise<string>;
+    signTransaction(xdr: string, opts: { network: string }): Promise<{ signedXDR: string }>;
+    getNetwork(): Promise<string>;
+  };
+}
+
+declare const window: FreighterWindow | undefined;
+
 export function getFreighter(): FreighterWallet | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const w = (window as any).freighter;
+  const w = window?.freighter;
   if (!w) {
     return null;
   }
@@ -26,5 +36,5 @@ export async function isFreighterInstalled(): Promise<boolean> {
     return false;
   }
   await new Promise((r) => setTimeout(r, 100));
-  return !!(window as any).freighter;
+  return !!window?.freighter;
 }

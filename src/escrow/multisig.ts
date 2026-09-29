@@ -1,4 +1,6 @@
 import { Transaction, xdr } from '@stellar/stellar-sdk';
+import { TrustFlowError } from '../errors';
+import { logger } from '../utils/logger';
 import type { ContractConfig } from '../types/contract';
 import type {
   InitMultiSigParams,
@@ -19,6 +21,29 @@ import { MULTISIG_SNAPSHOT_VERSION } from '../types/multisig';
 import { submitTransaction } from '../stellar/transaction';
 
 /**
+ * Default length of time (ms) a terminal-status operation (`submitted` or
+ * `expired`) is retained before it becomes eligible for automatic eviction.
+ */
+export const DEFAULT_MULTISIG_RETENTION_MS = 5 * 60 * 1000;
+
+/**
+ * Constructor options for {@link MultiSigEscrowClient}.
+ */
+export interface MultiSigEscrowClientOptions {
+  /**
+   * How long (ms) a terminal-status operation is retained before it is evicted
+   * from the in-memory store. Defaults to {@link DEFAULT_MULTISIG_RETENTION_MS}.
+   */
+  retentionMs?: number;
+  /**
+   * Timeout in milliseconds for the Horizon submission in
+   * {@link MultiSigEscrowClient.submitWhenReady}. Falls back to
+   * `config.timeoutMs`, then to the SDK-wide 10s default.
+   */
+  timeoutMs?: number;
+}
+
+/**
  * Client for collecting M-of-N signatures on shared backend Escrow operations.
  *
  * Flow:
@@ -31,8 +56,18 @@ export class MultiSigEscrowClient {
   /** In-memory store of pending multi-sig operations, keyed by operationId. */
   private readonly operations = new Map<string, MultiSigOperation>();
   private _opCounter = 0;
+  /** Retention window for terminal-status operations before eviction. */
+  private readonly retentionMs: number;
+  /** Submission timeout for `submitWhenReady`; falls back to the config. */
+  private readonly timeoutMs?: number;
 
-  constructor(private readonly config: ContractConfig) {}
+  constructor(
+    private readonly config: ContractConfig,
+    options?: MultiSigEscrowClientOptions,
+  ) {
+    this.retentionMs = options?.retentionMs ?? DEFAULT_MULTISIG_RETENTION_MS;
+    this.timeoutMs = options?.timeoutMs ?? config.timeoutMs;
+  }
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -66,6 +101,7 @@ export class MultiSigEscrowClient {
     };
 
     this.operations.set(operationId, operation);
+    logger.debug('Multi-sig operation initialized', { operationId, escrowId: params.escrowId });
     return { ok: true, data: { operationId } };
   }
 
@@ -91,7 +127,7 @@ export class MultiSigEscrowClient {
     }
 
     if (this._isExpired(operation)) {
-      operation.status = 'expired';
+      this._markTerminal(operation, 'expired');
       return { ok: false, error: 'Operation has expired' };
     }
 
@@ -120,6 +156,12 @@ export class MultiSigEscrowClient {
       addedAt: Date.now(),
     };
     operation.collectedSignatures.push(entry);
+    logger.debug('Multi-sig signature added', {
+      operationId: params.operationId,
+      signer: params.signerAddress,
+      collected: operation.collectedSignatures.length,
+      threshold: operation.threshold,
+    });
 
     if (operation.collectedSignatures.length >= operation.threshold) {
       operation.status = 'ready';
@@ -140,7 +182,7 @@ export class MultiSigEscrowClient {
     }
 
     if (this._isExpired(operation) && operation.status === 'pending') {
-      operation.status = 'expired';
+      this._markTerminal(operation, 'expired');
     }
 
     return { ok: true, data: this._buildStatus(operation) };
@@ -162,7 +204,7 @@ export class MultiSigEscrowClient {
     }
 
     if (this._isExpired(operation)) {
-      operation.status = 'expired';
+      this._markTerminal(operation, 'expired');
       return { ok: false, error: 'Operation has expired' };
     }
 
@@ -180,8 +222,10 @@ export class MultiSigEscrowClient {
     }
 
     try {
-      const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl);
-      operation.status = 'submitted';
+      logger.debug('Submitting multi-sig operation', { operationId });
+      const submitted = await submitTransaction(assembledResult.data.xdr, horizonUrl, undefined, this.timeoutMs);
+      this._markTerminal(operation, 'submitted');
+      logger.info('Multi-sig operation submitted', { operationId, txHash: submitted.hash });
       return {
         ok: true,
         data: {
@@ -191,6 +235,7 @@ export class MultiSigEscrowClient {
         },
       };
     } catch (e) {
+      logger.error('Multi-sig submission failed', { operationId, error: String(e) });
       return { ok: false, error: `Submission failed: ${String(e)}` };
     }
   }
@@ -225,11 +270,33 @@ export class MultiSigEscrowClient {
   }
 
   /**
-   * Returns all operations associated with a given escrow, regardless of status.
+   * Evicts terminal-status operations (`submitted` or `expired`) that have been
+   * retained past the configured retention window, preventing the internal
+   * operations `Map` from growing without bound in long-lived processes.
+   *
+   * Calling this also triggers an eviction sweep on every {@link listOperations}
+   * call, so listed results only ever reflect retained (non-evicted) operations.
+   */
+  prune(): void {
+    const cutoff = Date.now() - this.retentionMs;
+    for (const [operationId, op] of this.operations) {
+      const terminal = op.status === 'submitted' || op.status === 'expired';
+      if (terminal && op.terminalAt !== undefined && op.terminalAt <= cutoff) {
+        this.operations.delete(operationId);
+      }
+    }
+  }
+
+  /**
+   * Returns all retained operations associated with a given escrow, regardless
+   * of status. Terminal operations that have been evicted by {@link prune} (past
+   * the retention window) are excluded, so this reflects only retained
+   * (non-evicted) operations.
    *
    * @param escrowId - Escrow identifier
    */
   listOperations(escrowId: string): MultiSigOperation[] {
+    this.prune();
     return Array.from(this.operations.values()).filter((op) => op.escrowId === escrowId);
   }
 
@@ -441,8 +508,12 @@ export class MultiSigEscrowClient {
     if (type === xdr.EnvelopeType.envelopeTypeTxFeeBump()) {
       return envelope.feeBump().signatures();
     }
-    // Legacy v0 envelope
-    return (envelope as any).v0?.().signatures?.() ?? [];
+    if (type === xdr.EnvelopeType.envelopeTypeTxV0()) {
+      return envelope.v0().signatures();
+    }
+    // Never fall through silently: a dropped signature here would let
+    // addSignature's threshold check undercount a real signer.
+    throw TrustFlowError.multiSigXdrError(`Unsupported transaction envelope type: ${type.name}`);
   }
 
   /** Replaces the signatures array on an envelope in-place. */
@@ -455,13 +526,25 @@ export class MultiSigEscrowClient {
       envelope.v1().signatures(signatures);
     } else if (type === xdr.EnvelopeType.envelopeTypeTxFeeBump()) {
       envelope.feeBump().signatures(signatures);
+    } else if (type === xdr.EnvelopeType.envelopeTypeTxV0()) {
+      envelope.v0().signatures(signatures);
     } else {
-      (envelope as any).v0?.().signatures?.(signatures);
+      throw TrustFlowError.multiSigXdrError(`Unsupported transaction envelope type: ${type.name}`);
     }
   }
 
   private _isExpired(operation: MultiSigOperation): boolean {
     return operation.expiresAt !== undefined && Date.now() > operation.expiresAt;
+  }
+
+  /**
+   * Transitions an operation to a terminal status (`expired` or `submitted`)
+   * and records when it reached that state, so {@link prune} can evict it once
+   * the retention window elapses.
+   */
+  private _markTerminal(operation: MultiSigOperation, status: 'expired' | 'submitted'): void {
+    operation.status = status;
+    operation.terminalAt = Date.now();
   }
 
   private _buildStatus(operation: MultiSigOperation): MultiSigStatus {

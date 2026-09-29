@@ -20,7 +20,7 @@ describe('DisputeClient', () => {
   });
 
   it('initialises with api url and token', () => {
-    const client = new DisputeClient('http://api', 'tok');
+    const client = new DisputeClient({ apiBaseUrl: 'http://api', apiKey: 'tok' } as any);
     expect(client).toBeDefined();
   });
 
@@ -54,7 +54,7 @@ describe('DisputeClient', () => {
   it('returns success for raiseDispute when API responds with ID', async () => {
     mockHttpPost.mockResolvedValueOnce({ data: { id: 'dsp-1' } });
 
-    const client = new DisputeClient('http://api', 'tok');
+    const client = new DisputeClient({ apiBaseUrl: 'http://api', apiKey: 'tok' } as any);
     const result = await client.raiseDispute({ escrowId: 'esc-1', reason: 'test' });
 
     expect(result.ok).toBe(true);
@@ -66,7 +66,7 @@ describe('DisputeClient', () => {
   it('returns error result on network failure', async () => {
     mockHttpPost.mockRejectedValueOnce(new Error('connection reset'));
 
-    const client = new DisputeClient('http://api', 'tok');
+    const client = new DisputeClient({ apiBaseUrl: 'http://api', apiKey: 'tok' } as any);
     const result = await client.raiseDispute({ escrowId: 'esc-1', reason: 'test' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -77,7 +77,7 @@ describe('DisputeClient', () => {
   it('returns dispute payload for getDispute', async () => {
     mockHttpGet.mockResolvedValueOnce({ data: { id: 'dsp-1', status: 'open' } });
 
-    const client = new DisputeClient('http://api', 'tok');
+    const client = new DisputeClient({ apiBaseUrl: 'http://api', apiKey: 'tok' } as any);
     const result = await client.getDispute('esc-1');
 
     expect(result.ok).toBe(true);

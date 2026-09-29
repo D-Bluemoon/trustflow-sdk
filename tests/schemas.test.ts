@@ -55,11 +55,12 @@ describe('exported Zod schemas', () => {
   });
 
   describe('NetworkSchema', () => {
-    it.each(['MAINNET', 'TESTNET', 'FUTURENET'])('accepts %s', (network) => {
+    it.each(['MAINNET', 'TESTNET'])('accepts %s', (network) => {
       expect(NetworkSchema.safeParse(network).success).toBe(true);
     });
 
     it('rejects an unsupported network', () => {
+      expect(NetworkSchema.safeParse('FUTURENET').success).toBe(false);
       expect(NetworkSchema.safeParse('DEVNET').success).toBe(false);
     });
   });

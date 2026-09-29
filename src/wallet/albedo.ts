@@ -6,9 +6,15 @@ export interface AlbedoWallet {
   }): Promise<{ signed_envelope_xdr: string; tx_hash: string }>;
 }
 
+interface AlbedoWindow {
+  albedo?: AlbedoWallet;
+}
+
+declare const window: AlbedoWindow | undefined;
+
 export function getAlbedo(): AlbedoWallet | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  return (window as any).albedo ?? null;
+  return window?.albedo ?? null;
 }

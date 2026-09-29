@@ -1,4 +1,4 @@
-import { isValidStellarAddress, isValidContractId } from '../src/utils/validate';
+import { isValidStellarAddress, isValidContractId } from '../src/utils/validation';
 
 describe('address validation', () => {
   it('accepts valid G address', () => {

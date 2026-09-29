@@ -8,9 +8,14 @@ export * from './types';
 export * from './types/index';
 export * from './types/contract';
 export * from './types/events';
+// Parser functions (the types come via ./types/events above) so consumers can
+// call parseEvent/parseEvents and get discriminated-union narrowing (#112).
+export { parseEvent, parseEvents, isTrustFlowEvent } from './events';
 export * from './types/multisig';
 export * from './types/juror';
 export * from './types/profile';
+export * from './constants';
+export * from './accounts';
 export * from './escrow';
 export * from './juror';
 export * from './profile';
@@ -19,14 +24,23 @@ export * from './auth';
 export * from './stellar';
 export * from './utils/validation';
 export * from './utils/format';
+export * from './utils/i128';
+export * from './utils/timezone';
+export * from './utils/request-validation';
+export * from './utils/connection-pool';
+export * from './utils/circuit-breaker';
+export * from './utils/environment';
+export * from './utils/transient';
+export * from './utils/retry';
+export * from './utils/interceptors';
 export * from './tx-pipeline';
 export { isTrustFlowEvent, parseEvent, parseEvents } from './events';
 export type { RawContractEvent, ParsedEvent, EscrowCreatedData, EscrowReleasedData, DisputeRaisedData } from './events';
 export { SorobanSpec } from './contract/spec';
 export type { SorobanSpecInput, SorobanUnionValue } from './contract/spec';
 export { TrustFlowClient } from './client';
-export { TrustFlowError } from './errors';
-export type { TrustFlowErrorCode } from './errors';
+export type { GetBalanceOptions } from './client';
+export * from './errors';
 
 // Zod runtime validation schemas (#45) — re-exported by name rather than
 // `export *` because `Network` and `ClientConfig` already exist as plain
@@ -43,5 +57,3 @@ export {
   ClientConfigSchema,
 } from './schemas';
 export type { CreateEscrowInput, ReleaseEscrowInput, DisputeEscrowInput } from './schemas';
-
-export const SDK_VERSION = '0.1.0';

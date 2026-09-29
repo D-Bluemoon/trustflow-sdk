@@ -43,6 +43,13 @@ export interface MultiSigOperation {
   status: MultiSigOperationStatus;
   createdAt: number;
   expiresAt?: number;
+  /**
+   * UNIX timestamp (ms) at which the operation reached a terminal status
+   * (`submitted` or `expired`). Used by `MultiSigEscrowClient.prune` to decide
+   * when a completed operation may be evicted from memory. Absent while the
+   * operation is still `pending`/`ready`.
+   */
+  terminalAt?: number;
 }
 
 /** Parameters for initiating a new multi-sig operation */

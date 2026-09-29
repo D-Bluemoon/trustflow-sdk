@@ -15,8 +15,8 @@ export function useTransaction() {
       setHash(h);
       setStatus('success');
       return h;
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
       setStatus('error');
       throw e;
     }
