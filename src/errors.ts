@@ -25,7 +25,9 @@ export type TrustFlowErrorCode =
   | 'INVALID_CONTRACT_CALL'
   | 'CIRCUIT_BREAKER_OPEN'
   | 'ACCOUNT_NOT_FOUND'
-  | 'UNSUPPORTED_ENVIRONMENT';
+  | 'UNSUPPORTED_ENVIRONMENT'
+  | 'VERSION_MISMATCH'
+  | 'USER_REJECTED';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;

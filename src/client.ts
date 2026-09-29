@@ -174,6 +174,35 @@ export class TrustFlowClient {
     for (const account of config.accounts ?? []) {
       this.accounts.add(account);
     }
+
+    // Initialize logger from config
+    this.logger = this.createLogger(config.logging);
+  }
+
+  private createLogger(logging?: LoggingConfig): SDKLogger {
+    if (logging?.logger) {
+      // Wrap custom logger in SDKLogger interface
+      const customLogger = logging.logger;
+      return new SDKLogger({
+        minLevel: 'silent',
+        logger: {
+          debug: (msg, ctx) => customLogger.debug(msg, ctx),
+          info: (msg, ctx) => customLogger.info(msg, ctx),
+          warn: (msg, ctx) => customLogger.warn(msg, ctx),
+          error: (msg, ctx) => customLogger.error(msg, ctx),
+        },
+      });
+    }
+    return new SDKLogger({
+      minLevel: logging?.level ?? 'error',
+      json: logging?.json,
+      prefix: 'TrustFlowClient',
+    });
+  }
+
+  /** Get the internal logger instance */
+  getLogger(): SDKLogger {
+    return this.logger;
   }
 
   // ---------------------------------------------------------------------------
