@@ -2,10 +2,8 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { readRetryAfterMs } from './transient';
 import { attachInterceptors } from './interceptors';
 import type { HttpInterceptors } from './interceptors';
+import { logger } from './logger';
 import { SDK_VERSION, DEFAULT_API_VERSION } from '../constants';
-import { createLogger } from './logger';
-
-const httpLogger = createLogger('http');
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -252,7 +250,7 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
   // that mock `axios.create` without interceptors keep working).
   instance.interceptors?.request?.use(
     (config) => {
-      httpLogger.debug('HTTP request', {
+      logger.debug('HTTP request', {
         method: config.method?.toUpperCase(),
         url: config.url,
         baseURL: config.baseURL,
@@ -260,14 +258,14 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
       return config;
     },
     (error) => {
-      httpLogger.error('HTTP request error', { error: error.message });
+      logger.error('HTTP request error', { error: error.message });
       return Promise.reject(error);
     }
   );
 
   instance.interceptors?.response?.use(
     (response) => {
-      httpLogger.debug('HTTP response', {
+      logger.debug('HTTP response', {
         status: response.status,
         url: response.config.url,
         baseURL: response.config.baseURL,
@@ -276,7 +274,7 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
     },
     (error) => {
       const status = error.response?.status;
-      httpLogger.warn('HTTP error response', {
+      logger.warn('HTTP error response', {
         status,
         url: error.config?.url,
         baseURL: error.config?.baseURL,
