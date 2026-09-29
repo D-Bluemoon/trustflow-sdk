@@ -82,17 +82,17 @@ export async function readContractState(
   try {
     const result = await withTransientRetry(
       () => server.simulateTransaction(tx),
-      { ...options.retry, timeoutMs: options.timeoutMs ?? client.timeoutMs },
+      options.retry,
       client.retryConfig,
       'rpc.simulateTransaction',
     );
 
-  if (rpc.Api.isSimulationError(result as any)) {
-    throw new TrustFlowError(
-      `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
-      'SIMULATION_ERROR',
-    );
-  }
+    if (rpc.Api.isSimulationError(result as any)) {
+      throw new TrustFlowError(
+        `Read simulation failed: ${(result as any).error ?? 'unknown error'}`,
+        'SIMULATION_ERROR',
+      );
+    }
 
     const retval = (result as any).result?.retval;
     logger.debug('Contract read succeeded', { method });

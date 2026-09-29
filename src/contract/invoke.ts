@@ -9,7 +9,9 @@ import type { ReadContractStateOptions } from './read';
 
 export type SignAndSubmitFn = (xdr: string) => Promise<string>;
 
-/** Per-call account, retry and timeout overrides for {@link invokeContract}. */
+const invokeLogger = logger;
+
+/** Per-call account and retry overrides for {@link invokeContract}. */
 export interface InvokeContractOptions extends AccountOptions {
   /**
    * Overrides the client's retry budget for this call — `attempts` counts the
